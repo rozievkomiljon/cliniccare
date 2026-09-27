@@ -225,9 +225,9 @@ describe.skipIf(!hasDb)("patient registration", () => {
   });
 
   it("portal account resolves to exactly one patient (own data only)", async () => {
-    const clinic = await ensureClinic(CLINIC_A);
+    // The seed links the portal user to P-2026-00001 in demo-clinic.
     const patient = await db.patient.findFirst({
-      where: { clinicId: clinic.id, mrn: "P-2026-00001" },
+      where: { clinic: { slug: "demo-clinic" }, mrn: "P-2026-00001" },
     });
     const portalUser = await db.user.findUnique({ where: { email: "patient@cliniccare.local" } });
     if (!patient || !portalUser) return; // seed may not have run in this DB
@@ -237,6 +237,7 @@ describe.skipIf(!hasDb)("patient registration", () => {
       include: { patient: true },
     });
     expect(account?.patient.id).toBe(patient.id);
+    expect(account?.patient.mrn).toBe("P-2026-00001");
   });
 });
 
