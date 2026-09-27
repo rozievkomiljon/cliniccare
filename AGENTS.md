@@ -28,6 +28,8 @@ boundaries, roadmap).
    tests must pass before merge; CI is the gate.
 7. **Clinical data is never silently mutated** (append-only clinical records from
    Phase 4) and **never logged** (PHI-safe logger policy).
+8. **Commits are authored by the human owner only** — no agent or bot
+   co-author trailers, on `main` or on feature branches.
 
 ## Layout
 
@@ -47,5 +49,9 @@ boundaries, roadmap).
 - [x] Phase 3 — doctor profiles/schedules, appointments (double-booking
   impossible via partial unique index + serializable availability check),
   in-app notifications, portal self-service
+- [x] Phase 3.1 (`v0.4.1`) — clinic-timezone-aware scheduling: availability,
+  conflicts, events, notifications, calendar, detail and portal surfaces all
+  read the clinic's wall clock (see `src/lib/timezone.ts`); doctor profile and
+  absence administration; slot-grid day view (`/appointments?view=day`)
 - [ ] Phase 4 — medical records (MVP complete)
 - [ ] Phase 5–9 — laboratory, pharmacy, billing, reports/AI, hardening
