@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
- * Local smoke check: boots `next dev` and probes the health endpoint.
- * Usage: npm run test:smoke  (requires only `npm install` — no DB needed)
+ * Local smoke check: boots `next dev` and probes public pages, auth redirect
+ * behavior, and the health endpoint. Usage: npm run test:smoke
  */
 import { spawn } from "node:child_process";
 import { join } from "node:path";
@@ -25,36 +25,46 @@ const timeout = setTimeout(() => {
   process.exit(1);
 }, 90_000);
 
-async function waitForServer() {
+async function waitFor(path) {
   for (let i = 0; i < 90; i++) {
     try {
-      const res = await fetch(`${BASE}/api/health`);
-      if (res.ok) return res;
+      const res = await fetch(`${BASE}${path}`, { redirect: "manual" });
+      if (res.status < 502) return res;
     } catch {
       /* not up yet */
     }
     await new Promise((r) => setTimeout(r, 1000));
   }
-  throw new Error("server never became ready");
+  throw new Error(`server never served ${path}`);
+}
+
+function assert(cond, message) {
+  if (!cond) throw new Error(message);
 }
 
 try {
-  const res = await waitForServer();
-  const body = await res.json();
-  console.log("GET /api/health ->", res.status, JSON.stringify(body));
-  if (body.status !== "ok") throw new Error(`unexpected body: ${JSON.stringify(body)}`);
+  const health = await waitFor("/api/health");
+  const body = await health.json();
+  console.log("GET /api/health ->", health.status, JSON.stringify(body));
+  assert(body.status === "ok", "health must report ok");
 
-  const home = await fetch(`${BASE}/`);
-  console.log("GET / ->", home.status);
-  if (!home.ok) throw new Error(`home returned ${home.status}`);
+  for (const path of ["/", "/login", "/forgot-password", "/reset-password", "/verify-email"]) {
+    const res = await waitFor(path);
+    console.log(`GET ${path} ->`, res.status);
+    assert(res.status === 200, `${path} must be public (got ${res.status})`);
+  }
 
-  const login = await fetch(`${BASE}/login`);
-  console.log("GET /login ->", login.status);
-  if (!login.ok) throw new Error(`login returned ${login.status}`);
+  const dash = await waitFor("/dashboard");
+  console.log("GET /dashboard (anon) ->", dash.status, "->", dash.headers.get("location"));
+  assert(dash.status >= 300 && dash.status < 400, "anonymous /dashboard must redirect");
 
-  const headers = home.headers;
+  const staff = await waitFor("/settings/staff");
+  console.log("GET /settings/staff (anon) ->", staff.status, "->", staff.headers.get("location"));
+  assert(staff.status >= 300 && staff.status < 400, "anonymous staff page must redirect");
+
+  const headers = (await waitFor("/")).headers;
   for (const key of ["x-frame-options", "x-content-type-options", "referrer-policy"]) {
-    if (!headers.get(key)) throw new Error(`missing security header: ${key}`);
+    assert(headers.get(key), `missing security header: ${key}`);
   }
   console.log("security headers present ✓");
   clearTimeout(timeout);

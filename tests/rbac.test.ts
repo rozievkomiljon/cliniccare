@@ -26,8 +26,8 @@ describe("rbac/permissions", () => {
     }
   });
 
-  it("gives PATIENT only the portal permission", () => {
-    expect(ROLE_PERMISSIONS.PATIENT).toEqual(["portal:access"]);
+  it("gives PATIENT only portal-scoped permissions", () => {
+    expect(ROLE_PERMISSIONS.PATIENT).toEqual(["portal:access", "appointments:own"]);
   });
 
   it("gives every role a non-empty permission set", () => {

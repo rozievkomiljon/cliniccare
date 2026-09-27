@@ -5,7 +5,15 @@ import { NextResponse, type NextRequest } from "next/server";
  * authorization happens server-side in the session layer and RBAC guard
  * (Phase 1) — middleware decisions are never trusted for access control.
  */
-const PUBLIC_PATHS: readonly string[] = ["/", "/login", "/health"];
+const PUBLIC_PATHS: readonly string[] = [
+  "/",
+  "/login",
+  "/forgot-password",
+  "/reset-password",
+  "/verify-email",
+  "/api/auth",
+  "/api/health",
+];
 
 function isPublic(pathname: string): boolean {
   return (

@@ -40,8 +40,9 @@ boundaries, roadmap).
 
 ## Phase status
 
-- [x] Phase 0 — bootstrap (this branch)
-- [ ] Phase 1 — auth, RBAC, clinics, audit
+- [x] Phase 0 — bootstrap
+- [x] Phase 1 — auth (Auth.js v5 DB sessions, argon2id), RBAC enforcement
+  (`requirePermission`), staff management, audit viewer, role dashboards
 - [ ] Phase 2 — patients & dashboards
 - [ ] Phase 3 — scheduling & appointments
 - [ ] Phase 4 — medical records (MVP complete)

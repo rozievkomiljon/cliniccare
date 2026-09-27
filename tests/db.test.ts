@@ -31,6 +31,7 @@ describe.skipIf(!DB_AVAILABLE && !CI)("database (requires reachable Postgres)", 
       DATABASE_URL: process.env.DATABASE_URL,
       REDIS_URL: process.env.REDIS_URL,
       NODE_ENV: process.env.NODE_ENV,
+      AUTH_SECRET: process.env.AUTH_SECRET,
     });
     if (!parsed.success) {
       throw new Error(`CI environment failed schema: ${parsed.error.message}`);
