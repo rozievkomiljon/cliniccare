@@ -1,5 +1,8 @@
 import Link from "next/link";
 
+import { PortalAppointments } from "@/features/appointments/components/portal-appointments";
+import { listAppointmentsForPatient } from "@/features/appointments/queries";
+import { listDoctors } from "@/features/doctors/queries";
 import { getPatientForPortalUser } from "@/features/patients/queries";
 import { requirePagePermission } from "@/lib/rbac/page-guard";
 
@@ -30,10 +33,13 @@ export default async function PortalPage() {
         <h1 className="text-2xl font-semibold tracking-tight">
           Welcome, {patient.firstName} {patient.lastName}
         </h1>
-        <p className="mt-1 text-sm text-muted-foreground">
-          Your appointments (Phase 3) and lab results (Phase 5) will appear here.
-        </p>
+        <p className="mt-1 text-sm text-muted-foreground">Lab results (Phase 5) will appear here.</p>
       </header>
+
+      <PortalAppointments
+        appointments={await listAppointmentsForPatient(patient.id)}
+        doctors={await listDoctors(patient.clinicId)}
+      />
 
       <section className="grid gap-4 lg:grid-cols-2">
         <div className="rounded-lg border p-5 text-sm">

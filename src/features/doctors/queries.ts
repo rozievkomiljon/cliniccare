@@ -2,19 +2,33 @@ import "server-only";
 
 import { db } from "@/lib/db";
 
+export type ScheduleRow = {
+  weekday: number;
+  startMinute: number;
+  endMinute: number;
+  slotMinutes: number;
+};
+
 export type DoctorListRow = {
   id: string;
   userId: string;
   name: string;
   email: string;
   specialization: string;
-  scheduleSummary: string;
+  schedules: ScheduleRow[];
 };
 
 const DAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
-function fmt(minute: number): string {
-  return `${String(Math.floor(minute / 60)).padStart(2, "0")}:${String(minute % 60).padStart(2, "0")}`;
+export function formatScheduleSummary(schedules: ScheduleRow[]): string {
+  if (schedules.length === 0) return "No schedule yet";
+  return schedules
+    .map((s) => {
+      const from = `${String(Math.floor(s.startMinute / 60)).padStart(2, "0")}:${String(s.startMinute % 60).padStart(2, "0")}`;
+      const to = `${String(Math.floor(s.endMinute / 60)).padStart(2, "0")}:${String(s.endMinute % 60).padStart(2, "0")}`;
+      return `${DAY_LABELS[s.weekday]} ${from}-${to}`;
+    })
+    .join(", ");
 }
 
 /** Clinic-scoped doctor directory for booking forms and schedule admin. */
@@ -34,11 +48,11 @@ export async function listDoctors(clinicId: string): Promise<DoctorListRow[]> {
     name: d.user.name,
     email: d.user.email,
     specialization: d.specialization,
-    scheduleSummary:
-      d.schedules.length === 0
-        ? "No schedule yet"
-        : d.schedules
-            .map((s) => `${DAY_LABELS[s.weekday]} ${fmt(s.startMinute)}-${fmt(s.endMinute)}`)
-            .join(", "),
+    schedules: d.schedules.map((s) => ({
+      weekday: s.weekday,
+      startMinute: s.startMinute,
+      endMinute: s.endMinute,
+      slotMinutes: s.slotMinutes,
+    })),
   }));
 }
