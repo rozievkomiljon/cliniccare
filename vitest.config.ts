@@ -9,6 +9,9 @@ export default defineConfig({
   resolve: {
     alias: {
       "@": fileURLToPath(new URL("./src", import.meta.url)),
+      // The real package throws outside React Server bundling; Next still
+      // enforces the guard at build time, tests just need it to resolve.
+      "server-only": fileURLToPath(new URL("./tests/stubs/server-only.ts", import.meta.url)),
     },
   },
   test: {
