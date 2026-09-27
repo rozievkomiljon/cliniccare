@@ -40,6 +40,22 @@ services:
       - "1025:1025"
       - "8025:8025"
 
+  # Private document store (S3 API). Buckets are never public; downloads go
+  # through the app's authorized route handler.
+  minio:
+    image: minio/minio:latest
+    container_name: cliniccare-minio
+    command: ["server", "/data", "--console-address", ":9001"]
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - miniodata:/data
+
 volumes:
   pgdata:
   redisdata:
+  miniodata:

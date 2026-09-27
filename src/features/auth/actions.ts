@@ -29,8 +29,9 @@ export async function loginAction(rawInput: unknown): Promise<ActionResult<{ url
   const { email, password } = parsed.data;
 
   const perMinute = Number(process.env.AUTH_RATE_LIMIT_PER_MIN ?? 5);
+  const perAccountHour = Number(process.env.AUTH_RATE_LIMIT_PER_ACCOUNT_HOUR ?? 10);
   const limited = rateLimit(await clientKey("login"), perMinute, 60_000);
-  const perAccount = rateLimit(`login-account:${email.toLowerCase()}`, 10, 60 * 60_000);
+  const perAccount = rateLimit(`login-account:${email.toLowerCase()}`, perAccountHour, 60 * 60_000);
   if (!limited.ok || !perAccount.ok) {
     return { ok: false, error: "Too many attempts. Try again later.", code: "RATE_LIMITED" };
   }

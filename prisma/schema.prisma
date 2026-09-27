@@ -1,5 +1,4 @@
-// ClinicCare — Phase 0 schema: identity, tenancy, sessions, audit.
-// Later phases extend this file with additive migrations only.
+// ClinicCare — schema. Phases extend this file with additive migrations only.
 
 generator client {
   provider = "prisma-client-js"
@@ -23,11 +22,12 @@ model Clinic {
 
   memberships Membership[]
   auditLogs   AuditLog[]
+  patients    Patient[]
+  services    ServiceCatalogItem[]
 
   @@index([slug])
 }
 
-/// Roles are an enum, not rows: the permission map lives in src/lib/rbac.
 enum Role {
   SUPER_ADMIN
   CLINIC_ADMIN
@@ -41,25 +41,27 @@ enum Role {
 }
 
 model User {
-  id              String    @id @default(cuid())
-  email           String    @unique
-  passwordHash    String
-  name            String
-  phone           String?
-  isSuperAdmin    Boolean   @default(false)
-  isActive        Boolean   @default(true)
-  emailVerifiedAt DateTime?
+  id                String    @id @default(cuid())
+  email             String    @unique
+  passwordHash      String
+  name              String
+  phone             String?
+  isSuperAdmin      Boolean   @default(false)
+  isActive          Boolean   @default(true)
+  emailVerifiedAt   DateTime?
   /// Set on logout-all/password-reset; JWTs issued before this instant are invalid.
   sessionsRevokedAt DateTime?
-  createdAt       DateTime  @default(now())
-  updatedAt       DateTime  @updatedAt
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
 
-  memberships            Membership[]
-  sessions               Session[]
-  accounts               Account[]
-  auditLogs              AuditLog[]              @relation("AuditActor")
-  passwordResetTokens    PasswordResetToken[]
+  memberships             Membership[]
+  sessions                Session[]
+  accounts                Account[]
+  auditLogs               AuditLog[]               @relation("AuditActor")
+  passwordResetTokens     PasswordResetToken[]
   emailVerificationTokens EmailVerificationToken[]
+  patientAccount          PatientAccount?
+  uploadedAttachments     Attachment[]             @relation("AttachmentUploader")
 
   @@index([isActive])
 }
@@ -106,7 +108,7 @@ model Membership {
   @@index([clinicId, role])
 }
 
-/// Auth.js database-session strategy (Phase 1 wires the adapter).
+/// Auth.js session row (kept for adapter compatibility / future device list).
 model Session {
   id           String   @id @default(cuid())
   sessionToken String   @unique
@@ -121,17 +123,17 @@ model Session {
 
 /// Placeholder for Auth.js OAuth accounts; credentials-only for now.
 model Account {
-  id           String  @id @default(cuid())
-  userId       String
-  type         String
-  provider     String
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
   providerAccountId String
-  refresh_token String?
-  access_token  String?
-  expires_at    Int?
-  token_type    String?
-  scope         String?
-  id_token      String?
+  refresh_token     String?
+  access_token      String?
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String?
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
@@ -159,4 +161,105 @@ model AuditLog {
   @@index([entityType, entityId])
   @@index([actorUserId, createdAt])
   @@index([clinicId, createdAt])
+}
+
+enum Sex {
+  MALE
+  FEMALE
+  OTHER
+}
+
+enum BloodGroup {
+  A_POSITIVE
+  A_NEGATIVE
+  B_POSITIVE
+  B_NEGATIVE
+  AB_POSITIVE
+  AB_NEGATIVE
+  O_POSITIVE
+  O_NEGATIVE
+  UNKNOWN
+}
+
+/// Clinic-scoped patient registry — the core clinical entity.
+model Patient {
+  id                    String      @id @default(cuid())
+  clinicId              String
+  /// Human-friendly medical record number, unique per clinic.
+  mrn                   String
+  firstName             String
+  lastName              String
+  dateOfBirth           DateTime
+  sex                   Sex
+  phone                 String?
+  email                 String?
+  address               String?
+  city                  String?
+  emergencyContactName  String?
+  emergencyContactPhone String?
+  bloodGroup            BloodGroup?
+  allergies             String?
+  chronicConditions     String?
+  notes                 String?
+  isDeleted             Boolean     @default(false)
+  createdAt             DateTime    @default(now())
+  updatedAt             DateTime    @updatedAt
+
+  clinic        Clinic          @relation(fields: [clinicId], references: [id], onDelete: Cascade)
+  portalAccount PatientAccount?
+  attachments   Attachment[]
+
+  @@unique([clinicId, mrn])
+  @@index([clinicId, isDeleted, lastName])
+  @@index([clinicId, isDeleted, phone])
+  @@index([lastName, firstName])
+}
+
+/// Links a portal login (User) to exactly one clinical Patient record.
+model PatientAccount {
+  id        String   @id @default(cuid())
+  userId    String   @unique
+  patientId String   @unique
+  createdAt DateTime @default(now())
+
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  patient Patient @relation(fields: [patientId], references: [id], onDelete: Cascade)
+}
+
+/// Patient documents (IDs, referrals, scans). Bytes live in the private
+/// object store; this row holds only metadata + the storage key.
+model Attachment {
+  id           String   @id @default(cuid())
+  clinicId     String
+  patientId    String
+  /// Server-generated object key inside the private bucket (never client-supplied).
+  storageKey   String   @unique
+  fileName     String
+  contentType  String
+  sizeBytes    Int
+  description  String?
+  uploadedById String
+  isDeleted    Boolean  @default(false)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  patient    Patient @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  uploadedBy User    @relation("AttachmentUploader", fields: [uploadedById], references: [id])
+
+  @@index([patientId, isDeleted])
+}
+
+/// Billing service catalog (seeded with consultation prices for later phases).
+model ServiceCatalogItem {
+  id        String   @id @default(cuid())
+  clinicId  String
+  name      String
+  category  String   @default("CONSULTATION")
+  unitPrice Int
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+
+  clinic Clinic @relation(fields: [clinicId], references: [id], onDelete: Cascade)
+
+  @@index([clinicId, category])
 }

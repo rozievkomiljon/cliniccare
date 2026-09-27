@@ -49,3 +49,6 @@ next-env.d.ts
 /playwright-report
 /blob-report
 .pgdata-e2e
+
+# local document storage (fs driver)
+.data/

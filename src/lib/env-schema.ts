@@ -25,6 +25,17 @@ export const envSchema = z.object({
     .string()
     .default("false")
     .transform((v) => v === "true"),
+  // Private document storage. DRIVER selects the backend: "fs" (local dev
+  // + E2E) or "s3" (MinIO in dev compose, AWS S3 in production). Downloads
+  // always flow through the app's authorized handler — never public URLs.
+  STORAGE_DRIVER: z.enum(["fs", "s3"]).default("fs"),
+  DATA_DIR: z.string().default(".data/objects"),
+  S3_ENDPOINT: z.string().url().default("http://localhost:9000"),
+  S3_REGION: z.string().default("us-east-1"),
+  S3_BUCKET: z.string().default("cliniccare-documents"),
+  S3_ACCESS_KEY_ID: z.string().default("minioadmin"),
+  S3_SECRET_ACCESS_KEY: z.string().default("minioadmin"),
+  MAX_UPLOAD_MB: z.coerce.number().int().min(1).max(100).default(10),
 });
 
 export type Env = z.infer<typeof envSchema>;

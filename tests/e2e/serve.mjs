@@ -37,6 +37,7 @@ export function createE2EServer({ log = (msg) => console.log(`[e2e] ${msg}`) } =
       // E2E exercises the journeys, not timing windows (limiter logic has its
       // own unit tests); multiple logins from one IP happen in one suite run.
       AUTH_RATE_LIMIT_PER_MIN: "100",
+      AUTH_RATE_LIMIT_PER_ACCOUNT_HOUR: "200",
       LOG_LEVEL: "warn",
       NEXT_TELEMETRY_DISABLED: "1",
     };
