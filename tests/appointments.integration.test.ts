@@ -18,7 +18,12 @@ import {
   setAppointmentStatus,
   type AppointmentActor,
 } from "@/features/appointments/service";
-import { upsertDoctorSchedule } from "@/features/doctors/service";
+import {
+  addDoctorTimeOff,
+  removeDoctorTimeOff,
+  upsertDoctorProfile,
+  upsertDoctorSchedule,
+} from "@/features/doctors/service";
 
 const DB_AVAILABLE = await (async () => {
   try {
@@ -34,6 +39,8 @@ const hasDb = DB_AVAILABLE || CI;
 const suffix = process.env.GITHUB_RUN_ID ?? "local";
 const CLINIC_A = `p3-a-${suffix}`;
 const CLINIC_B = `p3-b-${suffix}`;
+/** Non-UTC clinic: proves scheduling reads wall clock, not UTC. */
+const CLINIC_C = `p3-c-${suffix}`;
 const EMAIL_DOMAIN = "@ap3test.local";
 
 async function ensureClinic(slug: string) {
@@ -41,6 +48,24 @@ async function ensureClinic(slug: string) {
     where: { slug },
     update: {},
     create: { name: `P3 ${slug}`, slug, timezone: "UTC" },
+  });
+}
+
+/** Same as ensureClinic but with an explicit IANA timezone. */
+async function ensureClinicWithZone(slug: string, timezone: string) {
+  return db.clinic.upsert({
+    where: { slug },
+    update: { timezone },
+    create: { name: `P3 ${slug}`, slug, timezone },
+  });
+}
+
+/** Idempotent role grant (memberships are unique per user+clinic). */
+async function makeMembership(userId: string, clinicId: string, role: "DOCTOR" | "NURSE" | "CLINIC_ADMIN") {
+  return db.membership.upsert({
+    where: { userId_clinicId: { userId, clinicId } },
+    update: { role },
+    create: { userId, clinicId, role },
   });
 }
 
@@ -505,11 +530,203 @@ describe.skipIf(!hasDb)("doctor schedule service", () => {
   });
 });
 
+describe.skipIf(!hasDb)("doctor absences, clinic timezone and doctor admin", () => {
+  async function mkPatient(clinicId: string, tag: string, firstName = "Absent") {
+    return db.patient.create({
+      data: {
+        clinicId,
+        mrn: `P3-${Date.now()}-${tag}`,
+        firstName,
+        lastName: "Case",
+        dateOfBirth: new Date("1990-01-01T00:00:00.000Z"),
+        sex: "OTHER",
+        phone: `+1 555 04${tag}`,
+      },
+    });
+  }
+
+  it("a full-day absence blocks that day only, and removal reopens it", async () => {
+    const clinic = await ensureClinic(CLINIC_A);
+    const staff = await makeStaffUser(`s9-${suffix}${EMAIL_DOMAIN}`);
+    const doctorUser = await makeStaffUser(`d10-${suffix}${EMAIL_DOMAIN}`, "Dr Absent");
+    const doctor = await db.doctorProfile.create({
+      data: {
+        userId: doctorUser.id,
+        clinicId: clinic.id,
+        specialization: "Testology",
+        schedules: {
+          create: [
+            { weekday: 1, startMinute: 540, endMinute: 1020, slotMinutes: 30 },
+            { weekday: 2, startMinute: 540, endMinute: 1020, slotMinutes: 30 },
+          ],
+        },
+      },
+    });
+    const patient = await mkPatient(clinic.id, "1");
+    const actor: AppointmentActor = { clinicId: clinic.id, actorUserId: staff.id, actorName: staff.name, kind: "STAFF" };
+
+    const monday = nextMondayAt(10);
+    const absent = await addDoctorTimeOff({
+      clinicId: clinic.id,
+      actorUserId: staff.id,
+      doctorId: doctor.id,
+      date: monday.toISOString().slice(0, 10),
+      isFullDay: true,
+      reason: "Conference",
+    });
+    expect(absent.isFullDay).toBe(true);
+
+    await expect(
+      bookAppointment(
+        { doctorId: doctor.id, patientId: patient.id, scheduledAt: iso(monday), durationMinutes: 30 },
+        actor,
+      ),
+    ).rejects.toBeInstanceOf(ConflictError);
+
+    // The very next day is unaffected: an absence is a window, not a flag.
+    const tuesday = await bookAppointment(
+      {
+        doctorId: doctor.id,
+        patientId: patient.id,
+        scheduledAt: iso(new Date(monday.getTime() + 24 * 3600 * 1000)),
+        durationMinutes: 30,
+      },
+      actor,
+    );
+    expect(tuesday.status).toBe("PENDING");
+
+    const audits = await db.auditLog.findMany({ where: { action: "doctor.timeoff_added", entityId: absent.id } });
+    expect(audits).toHaveLength(1);
+
+    await removeDoctorTimeOff({ clinicId: clinic.id, actorUserId: staff.id, timeOffId: absent.id });
+    const reopened = await bookAppointment(
+      { doctorId: doctor.id, patientId: patient.id, scheduledAt: iso(monday), durationMinutes: 30 },
+      actor,
+    );
+    expect(reopened.status).toBe("PENDING");
+  });
+
+  it("a partial absence blocks its window and nothing around it", async () => {
+    const clinic = await ensureClinic(CLINIC_A);
+    const staff = await makeStaffUser(`s10-${suffix}${EMAIL_DOMAIN}`);
+    const doctorUser = await makeStaffUser(`d11-${suffix}${EMAIL_DOMAIN}`, "Dr Halfday");
+    const doctor = await db.doctorProfile.create({
+      data: {
+        userId: doctorUser.id,
+        clinicId: clinic.id,
+        specialization: "Testology",
+        schedules: { create: { weekday: 1, startMinute: 540, endMinute: 1020, slotMinutes: 30 } },
+      },
+    });
+    const patient = await mkPatient(clinic.id, "2", "Halfday");
+    const actor: AppointmentActor = { clinicId: clinic.id, actorUserId: staff.id, actorName: staff.name, kind: "STAFF" };
+    const monday = nextMondayAt(10);
+
+    await addDoctorTimeOff({
+      clinicId: clinic.id,
+      actorUserId: staff.id,
+      doctorId: doctor.id,
+      date: monday.toISOString().slice(0, 10),
+      isFullDay: false,
+      startTime: "09:00",
+      endTime: "10:00",
+      reason: "Dentist",
+    });
+
+    await expect(
+      bookAppointment(
+        // 09:30 sits inside the absence window but inside working hours.
+        { doctorId: doctor.id, patientId: patient.id, scheduledAt: iso(new Date(monday.getTime() - 30 * 60_000)), durationMinutes: 30 },
+        actor,
+      ),
+    ).rejects.toBeInstanceOf(ConflictError);
+
+    // 10:00 is the first free slot after the window.
+    const after = await bookAppointment(
+      { doctorId: doctor.id, patientId: patient.id, scheduledAt: iso(monday), durationMinutes: 30 },
+      actor,
+    );
+    expect(after.status).toBe("PENDING");
+  });
+
+  it("schedules a non-UTC clinic on its own wall clock", async () => {
+    const clinic = await ensureClinicWithZone(CLINIC_C, "Europe/Berlin");
+    const staff = await makeStaffUser(`sc-${suffix}${EMAIL_DOMAIN}`);
+    const doctorUser = await makeStaffUser(`dc-${suffix}${EMAIL_DOMAIN}`, "Dr Berlin");
+    const doctor = await db.doctorProfile.create({
+      data: {
+        userId: doctorUser.id,
+        clinicId: clinic.id,
+        specialization: "Testology",
+        schedules: { create: { weekday: 1, startMinute: 540, endMinute: 1020, slotMinutes: 30 } },
+      },
+    });
+    const patient = await mkPatient(clinic.id, "3", "Berliner");
+    const actor: AppointmentActor = { clinicId: clinic.id, actorUserId: staff.id, actorName: staff.name, kind: "STAFF" };
+
+    // 2027-01-04 is a Monday; Berlin is CET (UTC+1) in January.
+    const booked = await bookAppointment(
+      { doctorId: doctor.id, patientId: patient.id, scheduledAt: "2027-01-04T09:00", durationMinutes: 30 },
+      actor,
+    );
+    expect(booked.scheduledAt).toBe("2027-01-04T08:00:00.000Z");
+
+    // The stored instant would look like working hours in UTC, but 08:00 local
+    // is before the 09:00 shift — the rule is evaluated in clinic-local time.
+    await expect(
+      bookAppointment(
+        { doctorId: doctor.id, patientId: patient.id, scheduledAt: "2027-01-04T08:00", durationMinutes: 30 },
+        actor,
+      ),
+    ).rejects.toBeInstanceOf(ConflictError);
+
+    const notif = await db.notification.findFirst({
+      where: { clinicId: clinic.id, patientId: patient.id, type: "APPOINTMENT_BOOKED" },
+    });
+    expect(notif?.body).toContain("2027-01-04 09:00 (Europe/Berlin)");
+  });
+
+  it("only a doctor-role membership can be given a doctor profile", async () => {
+    const clinic = await ensureClinic(CLINIC_A);
+    const admin = await makeStaffUser(`ad-${suffix}${EMAIL_DOMAIN}`, "Admin Person");
+    await makeMembership(admin.id, clinic.id, "CLINIC_ADMIN");
+
+    const nurseUser = await makeStaffUser(`nu-${suffix}${EMAIL_DOMAIN}`, "Nora Notdoctor");
+    await makeMembership(nurseUser.id, clinic.id, "NURSE");
+
+    const doctorUser = await makeStaffUser(`dg-${suffix}${EMAIL_DOMAIN}`, "Dr Genuine");
+    await makeMembership(doctorUser.id, clinic.id, "DOCTOR");
+
+    await expect(
+      upsertDoctorProfile({
+        clinicId: clinic.id,
+        actorUserId: admin.id,
+        userId: nurseUser.id,
+        specialization: "Nursing",
+      }),
+    ).rejects.toBeInstanceOf(NotFoundError);
+
+    const profile = await upsertDoctorProfile({
+      clinicId: clinic.id,
+      actorUserId: admin.id,
+      userId: doctorUser.id,
+      specialization: "Cardiology",
+      licenseNo: "LIC-TEST-1",
+    });
+    expect(profile.specialization).toBe("Cardiology");
+
+    const audits = await db.auditLog.findMany({
+      where: { entityType: "DoctorProfile", entityId: profile.id, action: "doctor.created" },
+    });
+    expect(audits).toHaveLength(1);
+  });
+});
+
 afterAll(async () => {
   try {
     const clinicIds = (
       await db.clinic.findMany({
-        where: { slug: { in: [CLINIC_A, CLINIC_B] } },
+        where: { slug: { in: [CLINIC_A, CLINIC_B, CLINIC_C] } },
         select: { id: true },
       })
     ).map((c) => c.id);
@@ -531,7 +748,7 @@ afterAll(async () => {
       await db.membership.deleteMany({ where: { clinicId: { in: clinicIds } } });
     }
     await db.user.deleteMany({ where: { email: { endsWith: EMAIL_DOMAIN } } });
-    await db.clinic.deleteMany({ where: { slug: { in: [CLINIC_A, CLINIC_B] } } });
+    await db.clinic.deleteMany({ where: { slug: { in: [CLINIC_A, CLINIC_B, CLINIC_C] } } });
   } catch {
     // best-effort
   }

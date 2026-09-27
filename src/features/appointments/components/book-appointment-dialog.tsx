@@ -4,7 +4,7 @@ import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 
 import { createAppointmentAction } from "@/features/appointments/actions";
-import type { DoctorListRow } from "@/features/doctors/queries";
+import { nextWeekdayLocalInput, toLocalInputValue } from "@/lib/timezone";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -13,30 +13,43 @@ import { Label } from "@/components/ui/label";
 /** Patient options for the picker (light registry slice). */
 export type PatientOption = { id: string; mrn: string; firstName: string; lastName: string };
 
-/** Default the picker to a weekday mid-morning slot within the doctor's hours. */
-function defaultSlotIso(): string {
-  const d = new Date();
-  d.setUTCDate(d.getUTCDate() + 1);
-  while (d.getUTCDay() === 0 || d.getUTCDay() === 6) d.setUTCDate(d.getUTCDate() + 1);
-  d.setUTCHours(10, 0, 0, 0);
-  return d.toISOString().slice(0, 16);
-}
+/** Doctor options for the picker (a directory row satisfies this). */
+export type DoctorOption = { id: string; name: string; specialization: string };
+
+export type BookAppointmentFormProps = {
+  doctors: DoctorOption[];
+  patients: PatientOption[];
+  /** Clinic timezone — everything typed here is clinic-local wall clock. */
+  timeZone: string;
+  defaultDoctorId?: string;
+  defaultPatientId?: string;
+  /** ISO instant to prefill (rendered back as clinic-local wall clock). */
+  defaultScheduledAt?: string;
+  /** Open straight away (used by the day-view slot grid). */
+  startOpen?: boolean;
+};
 
 export function BookAppointmentForm({
   doctors,
   patients,
-}: {
-  doctors: DoctorListRow[];
-  patients: PatientOption[];
-}) {
+  timeZone,
+  defaultDoctorId,
+  defaultPatientId,
+  defaultScheduledAt,
+  startOpen = false,
+}: BookAppointmentFormProps) {
   const router = useRouter();
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(startOpen);
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
 
   if (!open) {
     return <Button onClick={() => setOpen(true)}>Book appointment</Button>;
   }
+
+  const scheduledAtValue = defaultScheduledAt
+    ? toLocalInputValue(new Date(defaultScheduledAt), timeZone)
+    : nextWeekdayLocalInput(timeZone);
 
   return (
     <form
@@ -63,6 +76,7 @@ export function BookAppointmentForm({
       }}
     >
       <h2 className="text-lg font-semibold">Book appointment</h2>
+      <p className="mt-1 text-sm text-muted-foreground">Times are clinic-local ({timeZone}).</p>
       {error ? (
         <Alert variant="destructive" className="mt-3">
           <AlertDescription>{error}</AlertDescription>
@@ -79,6 +93,7 @@ export function BookAppointmentForm({
             name="doctorId"
             required
             aria-label="Doctor"
+            defaultValue={defaultDoctorId}
             className="mt-1 w-full rounded-md border bg-transparent px-3 py-2 text-sm"
           >
             {doctors.map((d) => (
@@ -97,6 +112,7 @@ export function BookAppointmentForm({
             name="patientId"
             required
             aria-label="Patient"
+            defaultValue={defaultPatientId}
             className="mt-1 w-full rounded-md border bg-transparent px-3 py-2 text-sm"
           >
             {patients.map((p) => (
@@ -108,7 +124,7 @@ export function BookAppointmentForm({
         </div>
         <div>
           <Label htmlFor="scheduledAt" className="block text-sm font-medium">
-            Date &amp; time (UTC)<span className="text-red-600"> *</span>
+            Date &amp; time ({timeZone})<span className="text-red-600"> *</span>
           </Label>
           <Input
             id="scheduledAt"
@@ -116,7 +132,7 @@ export function BookAppointmentForm({
             type="datetime-local"
             required
             aria-label="Date and time"
-            defaultValue={defaultSlotIso()}
+            defaultValue={scheduledAtValue}
             className="mt-1"
           />
         </div>

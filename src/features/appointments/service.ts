@@ -16,6 +16,7 @@ import { Prisma, AppointmentStatus } from "@prisma/client";
 
 import { ConflictError, NotFoundError } from "@/lib/errors";
 import { db } from "@/lib/db";
+import { formatZoned, minutesOfDayZoned, parseLocalDateTime, zonedParts } from "@/lib/timezone";
 import { createAppointmentNotifications } from "@/features/notifications/service";
 
 /** Statuses that occupy a slot. */
@@ -36,7 +37,8 @@ export type AppointmentActor = {
 export type BookAppointmentInput = {
   doctorId: string;
   patientId: string;
-  scheduledAt: string; // YYYY-MM-DDTHH:mm (UTC)
+  /** `YYYY-MM-DDTHH:mm` interpreted in the CLINIC's timezone. */
+  scheduledAt: string;
   durationMinutes: number;
   reason?: string;
 };
@@ -80,17 +82,27 @@ function toAppointmentDto(row: {
   };
 }
 
-export function parseSlot(scheduledAt: string): Date {
-  // Treat "YYYY-MM-DDTHH:mm" as UTC clinic time; seconds are rejected upstream.
-  const d = new Date(`${scheduledAt}:00.000Z`);
-  if (Number.isNaN(d.getTime())) throw new ConflictError("Invalid appointment time.");
+/** Parses the form value as clinic-local wall clock (rejects malformed input). */
+export function parseSlot(scheduledAt: string, timeZone: string): Date {
+  const d = parseLocalDateTime(scheduledAt, timeZone);
+  if (!d) throw new ConflictError("Invalid appointment time.");
   return d;
 }
 
-function fmtWhen(d: Date): string {
-  return `${d.toISOString().slice(0, 10)} ${String(d.getUTCHours()).padStart(2, "0")}:${String(
-    d.getUTCMinutes(),
-  ).padStart(2, "0")} UTC`;
+function fmtWhen(d: Date, timeZone: string): string {
+  return `${formatZoned(d, timeZone)} (${timeZone})`;
+}
+
+/** `HH:MM` for a minutes-from-midnight value (schedule windows). */
+function minutesLabel(minute: number): string {
+  return `${String(Math.floor(minute / 60)).padStart(2, "0")}:${String(minute % 60).padStart(2, "0")}`;
+}
+
+/** The acting clinic's IANA timezone — every wall-clock value is read in it. */
+async function clinicTimeZone(clinicId: string): Promise<string> {
+  const clinic = await db.clinic.findUnique({ where: { id: clinicId }, select: { timezone: true } });
+  if (!clinic) throw new NotFoundError("Clinic not found.");
+  return clinic.timezone;
 }
 
 /**
@@ -105,6 +117,7 @@ async function assertSlotAvailable(
     doctorId: string;
     start: Date;
     end: Date;
+    timeZone: string;
     ignoreAppointmentId?: string;
   },
 ): Promise<void> {
@@ -114,33 +127,28 @@ async function assertSlotAvailable(
   });
   if (!doctor) throw new NotFoundError("Doctor not found.");
 
-  // 1. Weekly working hours.
+  // 1. Weekly working hours, evaluated in the clinic's timezone.
   const schedule = await tx.doctorSchedule.findFirst({
-    where: { doctorId: input.doctorId, weekday: input.start.getUTCDay(), isDeleted: false },
+    where: { doctorId: input.doctorId, weekday: zonedParts(input.start, input.timeZone).weekday, isDeleted: false },
   });
   if (!schedule) {
     throw new ConflictError("The doctor does not work at that time (no schedule that day).");
   }
-  const startMinute = input.start.getUTCHours() * 60 + input.start.getUTCMinutes();
-  const endMinute = input.end.getUTCHours() * 60 + input.end.getUTCMinutes();
+  const startMinute = minutesOfDayZoned(input.start, input.timeZone);
+  const endMinute = startMinute + (input.end.getTime() - input.start.getTime()) / 60_000;
   if (startMinute < schedule.startMinute || endMinute > schedule.endMinute) {
-    throw new ConflictError(
-      `Outside working hours (${String(Math.floor(schedule.startMinute / 60)).padStart(2, "0")}:${String(
-        schedule.startMinute % 60,
-      ).padStart(2, "0")}–${String(Math.floor(schedule.endMinute / 60)).padStart(2, "0")}:${String(
-        schedule.endMinute % 60,
-      ).padStart(2, "0")} UTC).`,
-    );
+    const windowLabel = `${minutesLabel(schedule.startMinute)}–${minutesLabel(schedule.endMinute)}`;
+    throw new ConflictError(`Outside working hours (${windowLabel} ${input.timeZone}).`);
   }
 
-  // 2. Time off.
+  // 2. Time off. A full-day absence is stored as a local midnight→midnight
+  // window, so the same interval-overlap test covers both kinds — and nothing
+  // else, so an absence never leaks into later days.
   const timeOff = await tx.doctorTimeOff.findFirst({
     where: {
       doctorId: input.doctorId,
-      OR: [
-        { isFullDay: true, startsAt: { lte: input.end } },
-        { isFullDay: false, startsAt: { lt: input.end }, endsAt: { gt: input.start } },
-      ],
+      startsAt: { lt: input.end },
+      endsAt: { gt: input.start },
     },
   });
   if (timeOff) throw new ConflictError("The doctor is off at that time.");
@@ -162,7 +170,7 @@ async function assertSlotAvailable(
     const candidateEnd = new Date(candidate.scheduledAt.getTime() + candidate.durationMinutes * 60_000);
     if (candidateEnd > input.start) {
       throw new ConflictError(
-        `That slot overlaps another appointment at ${fmtWhen(candidate.scheduledAt)}.`,
+        `That slot overlaps another appointment at ${fmtWhen(candidate.scheduledAt, input.timeZone)}.`,
       );
     }
   }
@@ -194,7 +202,8 @@ export async function bookAppointment(
   input: BookAppointmentInput,
   actor: AppointmentActor,
 ): Promise<AppointmentDto> {
-  const start = parseSlot(input.scheduledAt);
+  const timeZone = await clinicTimeZone(actor.clinicId);
+  const start = parseSlot(input.scheduledAt, timeZone);
   const end = new Date(start.getTime() + input.durationMinutes * 60_000);
 
   const patient = await db.patient.findFirst({
@@ -216,6 +225,7 @@ export async function bookAppointment(
         doctorId: input.doctorId,
         start,
         end,
+        timeZone,
       });
       const created = await tx.appointment.create({
         data: {
@@ -252,6 +262,7 @@ export async function bookAppointment(
         patientName: `${patient.firstName} ${patient.lastName}`,
         doctorName: created.doctor.user.name,
         whenIso: start.toISOString(),
+        timeZone,
       });
       await tx.auditLog.create({
         data: {
@@ -294,7 +305,8 @@ export type RescheduleAppointmentServiceInput = {
 export async function rescheduleAppointment(
   input: RescheduleAppointmentServiceInput,
 ): Promise<AppointmentDto> {
-  const start = parseSlot(input.scheduledAt);
+  const timeZone = await clinicTimeZone(input.actor.clinicId);
+  const start = parseSlot(input.scheduledAt, timeZone);
   const row = await db.$transaction(
     async (tx) => {
       const existing = await tx.appointment.findFirst({
@@ -315,6 +327,7 @@ export async function rescheduleAppointment(
         doctorId: existing.doctorId,
         start,
         end,
+        timeZone,
         ignoreAppointmentId: existing.id,
       });
 
@@ -334,7 +347,7 @@ export async function rescheduleAppointment(
           actorUserId: input.actor.actorUserId,
           actorName: input.actor.actorName,
           type: "RESCHEDULED",
-          detail: `was ${fmtWhen(existing.scheduledAt)} → now ${fmtWhen(start)}`,
+          detail: `was ${fmtWhen(existing.scheduledAt, timeZone)} → now ${fmtWhen(start, timeZone)}`,
         },
       });
       await createAppointmentNotifications(tx, {
@@ -345,6 +358,7 @@ export async function rescheduleAppointment(
         patientName: `${updated.patient.firstName} ${updated.patient.lastName}`,
         doctorName: updated.doctor.user.name,
         whenIso: start.toISOString(),
+        timeZone,
       });
       await tx.auditLog.create({
         data: {
@@ -383,6 +397,7 @@ export type CancelAppointmentServiceInput = {
 const CANCELLABLE: AppointmentStatus[] = ["PENDING", "CONFIRMED"];
 
 export async function cancelAppointment(input: CancelAppointmentServiceInput): Promise<AppointmentDto> {
+  const timeZone = await clinicTimeZone(input.actor.clinicId);
   const row = await db.$transaction(async (tx) => {
     const existing = await tx.appointment.findFirst({
       where: {
@@ -425,6 +440,7 @@ export async function cancelAppointment(input: CancelAppointmentServiceInput): P
       patientName: `${updated.patient.firstName} ${updated.patient.lastName}`,
       doctorName: updated.doctor.user.name,
       whenIso: existing.scheduledAt.toISOString(),
+      timeZone,
     });
     await tx.auditLog.create({
       data: {

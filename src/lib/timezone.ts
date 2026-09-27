@@ -172,3 +172,25 @@ export function zonedWeekRange(date: string, timeZone: string): { start: Date; e
 export function zonedToday(timeZone: string, now: Date = new Date()): string {
   return zonedDateString(now, timeZone);
 }
+
+/**
+ * Prefill value for booking forms: the next weekday at `hour:minute` wall clock
+ * in `timeZone`, as the shared `YYYY-MM-DDTHH:mm` form value. Weekends are
+ * skipped so the suggestion usually lands inside clinic hours.
+ */
+export function nextWeekdayLocalInput(
+  timeZone: string,
+  hour = 10,
+  minute = 0,
+  now: Date = new Date(),
+): string {
+  const today = zonedDateString(now, timeZone);
+  const [y, m, d] = today.split("-").map(Number);
+  for (let offset = 1; offset <= 8; offset += 1) {
+    const instant = zonedTimeToInstant({ year: y!, month: m!, day: d! + offset, hour, minute }, timeZone);
+    const weekday = zonedParts(instant, timeZone).weekday;
+    if (weekday !== 0 && weekday !== 6) return toLocalInputValue(instant, timeZone);
+  }
+  // Unreachable: any eight consecutive days contain a weekday.
+  return toLocalInputValue(zonedTimeToInstant({ year: y!, month: m!, day: d! + 1, hour, minute }, timeZone), timeZone);
+}

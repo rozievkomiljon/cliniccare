@@ -11,6 +11,7 @@ import {
   formatZonedTime,
   isValidTimeZone,
   minutesOfDayZoned,
+  nextWeekdayLocalInput,
   parseLocalDateTime,
   toLocalInputValue,
   zonedDayRange,
@@ -79,6 +80,16 @@ describe("timezone conversions", () => {
     ]);
     expect(week.start.toISOString()).toBe("2027-01-02T23:00:00.000Z");
     expect(week.end.toISOString()).toBe("2027-01-09T23:00:00.000Z");
+  });
+
+  it("suggests the next weekday morning in clinic-local wall clock", () => {
+    // Friday noon UTC — Saturday and Sunday are skipped in both zones.
+    const friday = new Date("2027-01-01T12:00:00.000Z");
+    expect(nextWeekdayLocalInput("UTC", 10, 0, friday)).toBe("2027-01-04T10:00");
+    expect(nextWeekdayLocalInput(NY, 10, 0, friday)).toBe("2027-01-04T10:00");
+    expect(nextWeekdayLocalInput(BERLIN, 9, 30, friday)).toBe("2027-01-04T09:30");
+    // Saturday now → still Monday (Sunday is not a clinic day).
+    expect(nextWeekdayLocalInput(NY, 10, 0, new Date("2027-01-02T15:00:00.000Z"))).toBe("2027-01-04T10:00");
   });
 
   it("rejects malformed input and unknown zones", () => {

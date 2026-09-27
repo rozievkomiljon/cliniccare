@@ -2,7 +2,7 @@ import Link from "next/link";
 
 import { PortalAppointments } from "@/features/appointments/components/portal-appointments";
 import { listAppointmentsForPatient } from "@/features/appointments/queries";
-import { listDoctors } from "@/features/doctors/queries";
+import { getClinicTimeZone, listDoctors } from "@/features/doctors/queries";
 import { getPatientForPortalUser } from "@/features/patients/queries";
 import { requirePagePermission } from "@/lib/rbac/page-guard";
 
@@ -39,6 +39,7 @@ export default async function PortalPage() {
       <PortalAppointments
         appointments={await listAppointmentsForPatient(patient.id)}
         doctors={await listDoctors(patient.clinicId)}
+        timeZone={await getClinicTimeZone(patient.clinicId)}
       />
 
       <section className="grid gap-4 lg:grid-cols-2">

@@ -8,6 +8,7 @@ import {
   rescheduleAppointmentAction,
   setAppointmentStatusAction,
 } from "@/features/appointments/actions";
+import { toLocalInputValue } from "@/lib/timezone";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -33,7 +34,7 @@ const NEXT_STATUS: Record<string, Array<{ value: string; label: string }>> = {
   IN_PROGRESS: [{ value: "COMPLETED", label: "Complete" }],
 };
 
-export function AppointmentActions({ appointment }: AppointmentActionsProps) {
+export function AppointmentActions({ appointment, timeZone }: AppointmentActionsProps & { timeZone: string }) {
   const router = useRouter();
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
@@ -97,7 +98,7 @@ export function AppointmentActions({ appointment }: AppointmentActionsProps) {
           <div className="flex flex-wrap items-end gap-2">
             <div>
               <Label htmlFor="scheduledAt" className="block text-xs text-muted-foreground">
-                Move to (UTC)
+                Move to ({timeZone})
               </Label>
               <Input
                 id="scheduledAt"
@@ -105,7 +106,7 @@ export function AppointmentActions({ appointment }: AppointmentActionsProps) {
                 type="datetime-local"
                 required
                 aria-label="Move to date and time"
-                defaultValue={appointment.scheduledAt.slice(0, 16)}
+                defaultValue={toLocalInputValue(new Date(appointment.scheduledAt), timeZone)}
                 className="mt-1"
               />
             </div>

@@ -6,6 +6,8 @@
  */
 import type { NotificationType, Prisma } from "@prisma/client";
 
+import { formatZoned } from "@/lib/timezone";
+
 export type AppointmentNotificationInput = {
   clinicId: string;
   patientId: string;
@@ -13,22 +15,21 @@ export type AppointmentNotificationInput = {
   type: NotificationType;
   patientName: string;
   doctorName: string;
-  /** UTC timestamp of the (new) appointment time, if applicable. */
+  /** Instant of the (new) appointment time, if applicable. */
   whenIso?: string;
+  /** Clinic timezone used to render `whenIso` for humans. */
+  timeZone: string;
 };
 
-function fmtWhen(whenIso: string | undefined): string {
+function fmtWhen(whenIso: string | undefined, timeZone: string): string {
   if (!whenIso) return "";
-  const d = new Date(whenIso);
-  const hh = String(d.getUTCHours()).padStart(2, "0");
-  const mm = String(d.getUTCMinutes()).padStart(2, "0");
-  return ` at ${d.toISOString().slice(0, 10)} ${hh}:${mm} UTC`;
+  return ` at ${formatZoned(new Date(whenIso), timeZone)} (${timeZone})`;
 }
 
 export function buildAppointmentNotification(
   input: AppointmentNotificationInput,
 ): Array<Pick<Prisma.NotificationUncheckedCreateInput, "clinicId" | "userId" | "patientId" | "type" | "title" | "body">> {
-  const when = fmtWhen(input.whenIso);
+  const when = fmtWhen(input.whenIso, input.timeZone);
   const common = { clinicId: input.clinicId, type: input.type };
 
   const patientCopy: Record<NotificationType, { title: string; body: string }> = {
