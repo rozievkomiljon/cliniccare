@@ -89,7 +89,7 @@ async function main(): Promise<void> {
     create: { name: "Demo Clinic", slug: "demo-clinic", timezone: "UTC" },
   });
 
-  const users = new Map<string, { id: string }>();
+  const users = new Map<string, { id: string; name: string }>();
   for (const seed of ROLE_SEEDS) {
     const user = await prisma.user.upsert({
       where: { email: seed.email },

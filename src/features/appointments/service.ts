@@ -149,19 +149,20 @@ async function assertSlotAvailable(
   // appointment overlaps the requested slot when its start is before the
   // requested end and its end is after the requested start; Prisma can only
   // express the first half, the second is checked below.
-  const overlap = await tx.appointment.findFirst({
+  const candidates = await tx.appointment.findMany({
     where: {
       doctorId: input.doctorId,
       status: { in: ACTIVE_STATUSES },
       ...(input.ignoreAppointmentId ? { id: { not: input.ignoreAppointmentId } } : {}),
       scheduledAt: { lt: input.end },
     },
+    select: { id: true, scheduledAt: true, durationMinutes: true },
   });
-  if (overlap) {
-    const overlapEnd = new Date(overlap.scheduledAt.getTime() + overlap.durationMinutes * 60_000);
-    if (overlapEnd > input.start) {
+  for (const candidate of candidates) {
+    const candidateEnd = new Date(candidate.scheduledAt.getTime() + candidate.durationMinutes * 60_000);
+    if (candidateEnd > input.start) {
       throw new ConflictError(
-        `That slot overlaps another appointment at ${fmtWhen(overlap.scheduledAt)}.`,
+        `That slot overlaps another appointment at ${fmtWhen(candidate.scheduledAt)}.`,
       );
     }
   }
