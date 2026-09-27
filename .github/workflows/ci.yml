@@ -60,6 +60,9 @@ jobs:
       - name: Generate Next.js route types
         run: npx next typegen
 
+      - name: Source guards
+        run: npm run guard
+
       - name: Lint
         run: npm run lint
 

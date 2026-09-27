@@ -6,6 +6,7 @@
  * Exits non-zero on violation. Wired into `npm run guard` and CI.
  */
 import { readFileSync, readdirSync, statSync } from "node:fs";
+import { execFileSync } from "node:child_process";
 import { join, relative } from "node:path";
 
 const violations = [];
@@ -55,6 +56,18 @@ try {
   }
 } catch {
   violations.push(".gitignore missing");
+}
+
+// 2. .env.example must be tracked (proves the .gitignore negation works)
+try {
+  const tracked = execFileSync("git", ["ls-files", "--", ".env.example"], {
+    encoding: "utf8",
+  }).trim();
+  if (!tracked) {
+    violations.push(".env.example is not tracked by git — check the .gitignore negation");
+  }
+} catch {
+  violations.push("could not run git ls-files to verify .env.example tracking");
 }
 
 if (violations.length) {

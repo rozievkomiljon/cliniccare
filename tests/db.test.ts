@@ -25,7 +25,16 @@ const CI = process.env.CI === "true" || process.env.GITHUB_ACTIONS === "true";
 
 describe.skipIf(!DB_AVAILABLE && !CI)("database (requires reachable Postgres)", () => {
   it("runs against a valid environment", () => {
-    const parsed = envSchema.safeParse(process.env);
+    // CI guarantees DATABASE_URL/REDIS_URL (used by the migrate/seed steps);
+    // validate exactly those plus NODE_ENV, immune to unrelated runner vars.
+    const parsed = envSchema.safeParse({
+      DATABASE_URL: process.env.DATABASE_URL,
+      REDIS_URL: process.env.REDIS_URL,
+      NODE_ENV: process.env.NODE_ENV,
+    });
+    if (!parsed.success) {
+      throw new Error(`CI environment failed schema: ${parsed.error.message}`);
+    }
     expect(parsed.success).toBe(true);
   });
 
