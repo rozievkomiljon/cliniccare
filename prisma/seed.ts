@@ -71,6 +71,15 @@ const SERVICES = [
   { name: "Follow-up visit", category: "CONSULTATION", unitPrice: 3000 },
 ];
 
+/** Date `offset` days from now at `hourUTC`:00, skipping Sat/Sun. */
+function nextBusinessDayAt(offset: number, hourUTC: number): Date {
+  const d = new Date();
+  d.setUTCDate(d.getUTCDate() + offset);
+  while (d.getUTCDay() === 0 || d.getUTCDay() === 6) d.setUTCDate(d.getUTCDate() + 1);
+  d.setUTCHours(hourUTC, 0, 0, 0);
+  return d;
+}
+
 async function main(): Promise<void> {
   const passwordHash = await hashPassword("ChangeMe_2026!");
 
@@ -144,8 +153,85 @@ async function main(): Promise<void> {
     }
   }
 
+  // Phase 3: doctor profile + weekly schedule + demo appointments.
+  const doctorUser = users.get("doctor@cliniccare.local");
+  if (!doctorUser) throw new Error("doctor@cliniccare.local must exist before doctor profile seeding");
+  const doctor = await prisma.doctorProfile.upsert({
+    where: { userId: doctorUser.id },
+    update: { clinicId: clinic.id, specialization: "General Medicine", isDeleted: false },
+    create: {
+      userId: doctorUser.id,
+      clinicId: clinic.id,
+      specialization: "General Medicine",
+      bio: "Family medicine with a focus on preventive care.",
+      licenseNo: "LIC-2026-0001",
+    },
+  });
+
+  // Mon-Fri 09:00-17:00, Sat 09:00-13:00 (minutes from midnight UTC), 30-min slots.
+  const WEEK: Array<{ weekday: number; startMinute: number; endMinute: number; slotMinutes: number }> = [
+    { weekday: 1, startMinute: 540, endMinute: 1020, slotMinutes: 30 },
+    { weekday: 2, startMinute: 540, endMinute: 1020, slotMinutes: 30 },
+    { weekday: 3, startMinute: 540, endMinute: 1020, slotMinutes: 30 },
+    { weekday: 4, startMinute: 540, endMinute: 1020, slotMinutes: 30 },
+    { weekday: 5, startMinute: 540, endMinute: 1020, slotMinutes: 30 },
+    { weekday: 6, startMinute: 540, endMinute: 780, slotMinutes: 30 },
+  ];
+  for (const day of WEEK) {
+    await prisma.doctorSchedule.upsert({
+      where: { doctorId_weekday: { doctorId: doctor.id, weekday: day.weekday } },
+      update: { startMinute: day.startMinute, endMinute: day.endMinute, slotMinutes: day.slotMinutes, isDeleted: false },
+      create: { doctorId: doctor.id, ...day },
+    });
+  }
+
+  // Demo appointments in the doctor's first week (skip when any already exist
+  // so re-seeding stays idempotent).
+  const hasAppointments = await prisma.appointment.findFirst({ where: { clinicId: clinic.id } });
+  if (!hasAppointments) {
+    const patientByMrn = (mrn: string) =>
+      prisma.patient.findFirst({ where: { clinicId: clinic.id, mrn } });
+    const [paul, maria, chen] = await Promise.all([
+      patientByMrn("P-2026-00001"),
+      patientByMrn("P-2026-00002"),
+      patientByMrn("P-2026-00003"),
+    ]);
+    const receptionist = users.get("reception@cliniccare.local");
+    const demo = [
+      { patient: paul, offset: 1, hourUTC: 10, status: "CONFIRMED" as const, reason: "Annual check-up" },
+      { patient: maria, offset: 2, hourUTC: 11, status: "PENDING" as const, reason: "Blood pressure follow-up" },
+      { patient: chen, offset: 3, hourUTC: 14, status: "PENDING" as const, reason: "New patient consultation" },
+    ];
+    for (const d of demo) {
+      if (!d.patient) continue;
+      const appt = await prisma.appointment.create({
+        data: {
+          clinicId: clinic.id,
+          doctorId: doctor.id,
+          patientId: d.patient.id,
+          scheduledAt: nextBusinessDayAt(d.offset, d.hourUTC),
+          durationMinutes: 30,
+          status: d.status,
+          reason: d.reason,
+          createdById: receptionist?.id ?? null,
+          createdByName: receptionist?.name ?? "Front desk",
+        },
+      });
+      await prisma.appointmentEvent.create({
+        data: {
+          appointmentId: appt.id,
+          kind: "STAFF",
+          actorUserId: receptionist?.id ?? null,
+          actorName: receptionist?.name ?? "Front desk",
+          type: "BOOKED",
+          detail: d.reason,
+        },
+      });
+    }
+  }
+
   console.log(
-    `Seeded clinic "${clinic.name}", ${ROLE_SEEDS.length} role users, ${DEMO_PATIENTS.length} patients, ${SERVICES.length} services.`,
+    `Seeded clinic "${clinic.name}", ${ROLE_SEEDS.length} role users, ${DEMO_PATIENTS.length} patients, ${SERVICES.length} services, 1 doctor schedule, demo appointments.`,
   );
 }
 
