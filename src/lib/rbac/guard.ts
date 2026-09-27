@@ -27,6 +27,25 @@ export async function getSession(): Promise<AppSession | null> {
   const userId = authSession?.user?.id;
   if (!userId) return null;
 
+  const user = await db.user.findUnique({
+    where: { id: userId },
+    select: {
+      id: true,
+      email: true,
+      name: true,
+      isSuperAdmin: true,
+      isActive: true,
+      sessionsRevokedAt: true,
+    },
+  });
+  if (!user || !user.isActive) return null;
+
+  // JWT revocation: tokens issued before the watermark are invalid.
+  const stamp = authSession.user.stamp;
+  if (user.sessionsRevokedAt && (!stamp || stamp * 1000 < user.sessionsRevokedAt.getTime())) {
+    return null;
+  }
+
   const memberships = await db.membership.findMany({
     where: { userId },
     include: { clinic: { select: { id: true, name: true, slug: true } } },
@@ -36,13 +55,6 @@ export async function getSession(): Promise<AppSession | null> {
   const first = memberships[0];
   if (!first) return null;
 
-  const user = {
-    id: userId,
-    email: authSession.user.email ?? "",
-    name: authSession.user.name ?? "",
-    isSuperAdmin: authSession.user.isSuperAdmin ?? false,
-  };
-
   const mapped = memberships.map((m) => ({
     clinicId: m.clinic.id,
     clinicName: m.clinic.name,
@@ -51,7 +63,12 @@ export async function getSession(): Promise<AppSession | null> {
   }));
 
   return {
-    user,
+    user: {
+      id: user.id,
+      email: user.email,
+      name: user.name,
+      isSuperAdmin: user.isSuperAdmin,
+    },
     memberships: mapped,
     activeRole: first.role,
     activeClinicId: first.clinic.id,

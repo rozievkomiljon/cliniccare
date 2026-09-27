@@ -92,7 +92,10 @@ export async function resetPassword(token: string, passwordHash: string): Promis
   }
 
   await db.$transaction(async (tx) => {
-    await tx.user.update({ where: { id: record.userId }, data: { passwordHash } });
+    await tx.user.update({
+      where: { id: record.userId },
+      data: { passwordHash, sessionsRevokedAt: new Date() },
+    });
     await tx.passwordResetToken.update({ where: { tokenHash }, data: { usedAt: new Date() } });
     await tx.session.deleteMany({ where: { userId: record.userId } });
   });
@@ -118,8 +121,12 @@ export async function verifyEmail(token: string): Promise<void> {
   ]);
 }
 
-/** Audits an explicit sign-out. The Auth.js cookie clearing happens in the action. */
+/** Audits an explicit sign-out and invalidates the current JWT via the watermark. */
 export async function logout(userId: string): Promise<void> {
+  await db.$transaction([
+    db.user.update({ where: { id: userId }, data: { sessionsRevokedAt: new Date() } }),
+    db.session.deleteMany({ where: { userId } }),
+  ]);
   await recordAudit({
     actorUserId: userId,
     action: "auth.logout",

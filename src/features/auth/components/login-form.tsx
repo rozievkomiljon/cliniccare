@@ -1,7 +1,6 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 
 import { loginAction } from "@/features/auth/actions";
@@ -19,7 +18,6 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 
 export function LoginForm() {
-  const router = useRouter();
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
 
@@ -35,16 +33,14 @@ export function LoginForm() {
           const form = new FormData(event.currentTarget);
           setError(null);
           startTransition(async () => {
+            // Success performs a full-page redirect from the server (Auth.js
+            // native flow, required for the session cookie to be set) — no
+            // client-side navigation needed here.
             const result = await loginAction({
               email: String(form.get("email") ?? ""),
               password: String(form.get("password") ?? ""),
             });
-            if (result.ok) {
-              router.replace(result.data.url);
-              router.refresh();
-            } else {
-              setError(result.error);
-            }
+            if (!result.ok) setError(result.error);
           });
         }}
       >

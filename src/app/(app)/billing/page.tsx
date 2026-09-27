@@ -1,9 +1,9 @@
-import { requirePermission } from "@/lib/rbac/guard";
+import { requirePagePermission } from "@/lib/rbac/page-guard";
 
 export const metadata = { title: "Billing" };
 
 export default async function BillingPage() {
-  await requirePermission("billing:view");
+  await requirePagePermission("billing:view");
 
   return (
     <div className="space-y-6">
