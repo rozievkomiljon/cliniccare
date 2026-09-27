@@ -63,7 +63,8 @@ describe.skipIf(!DB_AVAILABLE && !CI)("database (requires reachable Postgres)", 
     });
     expect(memberships.length).toBeGreaterThanOrEqual(9);
     for (const m of memberships) {
-      expect(hasPermission(m.role, "dashboard:view")).toBe(true);
+      const expected = m.role === "PATIENT" ? "portal:access" : "dashboard:view";
+      expect(hasPermission(m.role, expected)).toBe(true);
     }
   });
 });
