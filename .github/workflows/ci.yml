@@ -1,0 +1,84 @@
+name: CI
+
+on:
+  push:
+    branches: ["main", "feat/**"]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  DATABASE_URL: postgresql://cliniccare:cliniccare@localhost:5432/cliniccare
+  REDIS_URL: redis://localhost:6379
+  NEXT_TELEMETRY_DISABLED: "1"
+
+jobs:
+  verify:
+    name: Lint, typecheck, test, build
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: cliniccare
+          POSTGRES_PASSWORD: cliniccare
+          POSTGRES_DB: cliniccare
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U cliniccare -d cliniccare"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 5
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Prisma generate
+        run: npx prisma generate
+
+      - name: Generate Next.js route types
+        run: npx next typegen
+
+      - name: Source guards
+        run: npm run guard
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Apply migrations
+        run: npx prisma migrate deploy
+
+      - name: Seed database
+        run: npx tsx prisma/seed.ts
+
+      - name: Unit and integration tests
+        run: npm test
+        env:
+          CI: "true"
+
+      - name: Build
+        run: npm run build

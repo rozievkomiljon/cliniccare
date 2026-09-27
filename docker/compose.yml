@@ -1,0 +1,45 @@
+# Local development infrastructure. Production compose (app + worker + Caddy) lands in Phase 9.
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: cliniccare-db
+    environment:
+      POSTGRES_USER: cliniccare
+      POSTGRES_PASSWORD: cliniccare
+      POSTGRES_DB: cliniccare
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U cliniccare -d cliniccare"]
+      condition: service_healthy
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    container_name: cliniccare-redis
+    ports:
+      - "6379:6379"
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  # SMTP sink for local email testing: UI at http://localhost:8025
+  mailhog:
+    image: mailhog/mailhog:v1.0.1
+    container_name: cliniccare-mailhog
+    ports:
+      - "1025:1025"
+      - "8025:8025"
+
+volumes:
+  pgdata:
+  redisdata:

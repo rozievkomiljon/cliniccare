@@ -1,0 +1,130 @@
+// ClinicCare — Phase 0 schema: identity, tenancy, sessions, audit.
+// Later phases extend this file with additive migrations only.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+/// Clinics are the tenant boundary. Every clinic-scoped table carries clinicId.
+model Clinic {
+  id        String   @id @default(cuid())
+  name      String
+  slug      String   @unique
+  timezone  String   @default("UTC")
+  settings  Json     @default("{}")
+  isDeleted Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  memberships Membership[]
+  auditLogs   AuditLog[]
+
+  @@index([slug])
+}
+
+/// Roles are an enum, not rows: the permission map lives in src/lib/rbac.
+enum Role {
+  SUPER_ADMIN
+  CLINIC_ADMIN
+  RECEPTIONIST
+  DOCTOR
+  NURSE
+  LAB_TECH
+  PHARMACIST
+  ACCOUNTANT
+  PATIENT
+}
+
+model User {
+  id           String    @id @default(cuid())
+  email        String    @unique
+  passwordHash String
+  name         String
+  phone        String?
+  isSuperAdmin Boolean   @default(false)
+  isActive     Boolean   @default(true)
+  // Phase 1 adds emailVerifiedAt, password reset + email tokens.
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  memberships Membership[]
+  sessions    Session[]
+  accounts    Account[]
+  auditLogs   AuditLog[]   @relation("AuditActor")
+
+  @@index([isActive])
+}
+
+/// User <-> Clinic membership with the clinic-scoped role (M:N).
+model Membership {
+  id       String @id @default(cuid())
+  userId   String
+  clinicId String
+  role     Role
+
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  clinic Clinic @relation(fields: [clinicId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, clinicId])
+  @@index([clinicId, role])
+}
+
+/// Auth.js database-session strategy (Phase 1 wires the adapter).
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  createdAt    DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+/// Placeholder for Auth.js OAuth accounts; credentials-only for now.
+model Account {
+  id           String  @id @default(cuid())
+  userId       String
+  type         String
+  provider     String
+  providerAccountId String
+  refresh_token String?
+  access_token  String?
+  expires_at    Int?
+  token_type    String?
+  scope         String?
+  id_token      String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+  @@index([userId])
+}
+
+/// Append-only audit trail. Never updated, never hard-deleted.
+model AuditLog {
+  id          String   @id @default(cuid())
+  clinicId    String?
+  actorUserId String?
+  action      String
+  entityType  String
+  entityId    String?
+  before      Json?
+  after       Json?
+  ip          String?
+  userAgent   String?
+  createdAt   DateTime @default(now())
+
+  clinic Clinic? @relation(fields: [clinicId], references: [id], onDelete: SetNull)
+  actor  User?   @relation("AuditActor", fields: [actorUserId], references: [id], onDelete: SetNull)
+
+  @@index([entityType, entityId])
+  @@index([actorUserId, createdAt])
+  @@index([clinicId, createdAt])
+}
