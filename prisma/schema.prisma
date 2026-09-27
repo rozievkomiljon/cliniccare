@@ -20,10 +20,13 @@ model Clinic {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  memberships Membership[]
-  auditLogs   AuditLog[]
-  patients    Patient[]
-  services    ServiceCatalogItem[]
+  memberships    Membership[]
+  auditLogs      AuditLog[]
+  patients       Patient[]
+  services       ServiceCatalogItem[]
+  doctorProfiles DoctorProfile[]
+  appointments   Appointment[]
+  notifications  Notification[]
 
   @@index([slug])
 }
@@ -62,6 +65,8 @@ model User {
   emailVerificationTokens EmailVerificationToken[]
   patientAccount          PatientAccount?
   uploadedAttachments     Attachment[]             @relation("AttachmentUploader")
+  doctorProfile           DoctorProfile?
+  notifications           Notification[]
 
   @@index([isActive])
 }
@@ -208,6 +213,8 @@ model Patient {
   clinic        Clinic          @relation(fields: [clinicId], references: [id], onDelete: Cascade)
   portalAccount PatientAccount?
   attachments   Attachment[]
+  appointments  Appointment[]
+  notifications Notification[]
 
   @@unique([clinicId, mrn])
   @@index([clinicId, isDeleted, lastName])
@@ -262,4 +269,153 @@ model ServiceCatalogItem {
   clinic Clinic @relation(fields: [clinicId], references: [id], onDelete: Cascade)
 
   @@index([clinicId, category])
+}
+
+enum AppointmentStatus {
+  PENDING
+  CONFIRMED
+  CHECKED_IN
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+  NO_SHOW
+}
+
+/// Who changed an appointment and why — drives the patient-visible feed.
+enum AppointmentActorKind {
+  STAFF
+  PATIENT
+}
+
+enum NotificationType {
+  APPOINTMENT_BOOKED
+  APPOINTMENT_RESCHEDULED
+  APPOINTMENT_CANCELLED
+}
+
+/// Clinical staff identity: specialization and booking constraints. One per
+/// User, created by clinic admins; booking services resolve schedules via it.
+model DoctorProfile {
+  id             String   @id @default(cuid())
+  userId         String   @unique
+  clinicId       String
+  specialization String
+  bio            String?
+  licenseNo      String?
+  isDeleted      Boolean  @default(false)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  user         User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  clinic       Clinic           @relation(fields: [clinicId], references: [id], onDelete: Cascade)
+  schedules    DoctorSchedule[]
+  timeOff      DoctorTimeOff[]
+  appointments Appointment[]    @relation("AppointmentDoctor")
+
+  @@index([clinicId, isDeleted])
+}
+
+/// One weekly availability row per weekday. Times are minutes from midnight.
+model DoctorSchedule {
+  id          String  @id @default(cuid())
+  doctorId    String
+  /// 0=Sunday … 6=Saturday (JS getUTCDay convention).
+  weekday     Int
+  startMinute Int
+  endMinute   Int
+  slotMinutes Int     @default(30)
+  isDeleted   Boolean @default(false)
+
+  doctor DoctorProfile @relation(fields: [doctorId], references: [id], onDelete: Cascade)
+
+  @@unique([doctorId, weekday])
+}
+
+/// Clinic-admin-entered absences (leave, conference); validated to not overlap
+/// (except full-day) in the service layer.
+model DoctorTimeOff {
+  id        String   @id @default(cuid())
+  doctorId  String
+  startsAt  DateTime
+  endsAt    DateTime
+  reason    String?
+  isFullDay Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  doctor DoctorProfile @relation(fields: [doctorId], references: [id], onDelete: Cascade)
+
+  @@index([doctorId, startsAt])
+}
+
+/// A visit booked into one doctor's slot. Clinic-scoped; scheduling decisions
+/// key on scheduledAt + durationMinutes, so the table itself stays timezone-
+/// agnostic (the clinic timezone is display-only).
+model Appointment {
+  id                 String            @id @default(cuid())
+  clinicId           String
+  doctorId           String
+  patientId          String
+  /// Instant the visit starts (stored UTC).
+  scheduledAt        DateTime
+  /// Planned visit length in minutes; the partial unique index below treats
+  /// an overlap as doctor+scheduledAt equality for active statuses.
+  durationMinutes    Int               @default(30)
+  status             AppointmentStatus @default(PENDING)
+  reason             String?
+  notes              String?
+  /// Set when the appointment leaves the active set (cancel / no-show paths).
+  cancelledAt        DateTime?
+  cancellationReason String?
+  createdById        String?
+  createdByName      String?
+  createdAt          DateTime          @default(now())
+  updatedAt          DateTime          @updatedAt
+
+  clinic  Clinic             @relation(fields: [clinicId], references: [id], onDelete: Cascade)
+  doctor  DoctorProfile      @relation("AppointmentDoctor", fields: [doctorId], references: [id], onDelete: Cascade)
+  patient Patient            @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  events  AppointmentEvent[]
+
+  @@index([clinicId, scheduledAt])
+  @@index([doctorId, scheduledAt])
+  @@index([patientId, scheduledAt])
+}
+
+/// Append-only change log for one appointment; also the template for the
+/// patient-visible portal feed.
+model AppointmentEvent {
+  id            String               @id @default(cuid())
+  appointmentId String
+  kind          AppointmentActorKind
+  actorUserId   String?
+  actorName     String
+  /// free-form: BOOKED / RESCHEDULED / CANCELLED / STATUS / NOTE
+  type          String
+  detail        String?
+  createdAt     DateTime             @default(now())
+
+  appointment Appointment @relation(fields: [appointmentId], references: [id], onDelete: Cascade)
+
+  @@index([appointmentId, createdAt])
+}
+
+/// In-app notification. patientId is the portal recipient (for appointment
+/// changes); staff recipients ride on the same table via userId.
+model Notification {
+  id        String           @id @default(cuid())
+  clinicId  String
+  userId    String?
+  patientId String?
+  type      NotificationType
+  title     String
+  body      String
+  readAt    DateTime?
+  createdAt DateTime         @default(now())
+
+  clinic  Clinic   @relation(fields: [clinicId], references: [id], onDelete: Cascade)
+  patient Patient? @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  user    User?    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([clinicId, patientId, createdAt])
+  @@index([userId, readAt])
 }

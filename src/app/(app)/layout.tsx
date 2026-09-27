@@ -40,6 +40,9 @@ function getNavForRole(role: string, isSuperAdmin: boolean) {
           items: [
             { href: "/dashboard", label: "Dashboard", enabled: true },
             { href: "/patients", label: "Patients", enabled: true },
+            { href: "/appointments", label: "Appointments", enabled: true },
+            { href: "/doctors", label: "Doctors", enabled: true },
+            { href: "/notifications", label: "Notifications", enabled: true },
             { href: "/settings/staff", label: "Staff", enabled: true },
             { href: "/settings/audit", label: "Audit log", enabled: true },
           ],
@@ -52,6 +55,9 @@ function getNavForRole(role: string, isSuperAdmin: boolean) {
           items: [
             { href: "/dashboard", label: "Dashboard", enabled: true },
             { href: "/patients", label: "Patients", enabled: true },
+            { href: "/appointments", label: "Appointments", enabled: true },
+            { href: "/doctors", label: "Doctors", enabled: true },
+            { href: "/notifications", label: "Notifications", enabled: true },
             { href: "/settings/staff", label: "Staff directory", enabled: true },
           ],
         },
@@ -64,6 +70,9 @@ function getNavForRole(role: string, isSuperAdmin: boolean) {
           items: [
             { href: "/dashboard", label: "Dashboard", enabled: true },
             { href: "/patients", label: "Patients", enabled: true },
+            { href: "/appointments", label: "Appointments", enabled: true },
+            { href: "/doctors", label: "Doctors", enabled: true },
+            { href: "/notifications", label: "Notifications", enabled: true },
           ],
         },
       ];
@@ -101,7 +110,10 @@ function getNavForRole(role: string, isSuperAdmin: boolean) {
       return [
         {
           label: "Menu",
-          items: [{ href: "/dashboard", label: "Dashboard", enabled: true }],
+          items: [
+            { href: "/dashboard", label: "Dashboard", enabled: true },
+            { href: "/notifications", label: "Notifications", enabled: true },
+          ],
         },
       ];
   }

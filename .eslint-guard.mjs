@@ -24,6 +24,7 @@ const ALLOWED_ENV_FILES = [
   "tests/auth.integration.test.ts", // CI env vars for DB-backed suites
   "src/features/auth/actions.ts", // AUTH_RATE_LIMIT_PER_MIN tuning knob (server action)
   "tests/patients.integration.test.ts", // CI env vars for DB-backed suites
+  "tests/appointments.integration.test.ts", // CI env vars for DB-backed suites
 ];
 
 function toPosix(p) {
