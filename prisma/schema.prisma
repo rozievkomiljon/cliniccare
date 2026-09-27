@@ -41,23 +41,53 @@ enum Role {
 }
 
 model User {
-  id           String    @id @default(cuid())
-  email        String    @unique
-  passwordHash String
-  name         String
-  phone        String?
-  isSuperAdmin Boolean   @default(false)
-  isActive     Boolean   @default(true)
-  // Phase 1 adds emailVerifiedAt, password reset + email tokens.
-  createdAt    DateTime  @default(now())
-  updatedAt    DateTime  @updatedAt
+  id              String    @id @default(cuid())
+  email           String    @unique
+  passwordHash    String
+  name            String
+  phone           String?
+  isSuperAdmin    Boolean   @default(false)
+  isActive        Boolean   @default(true)
+  emailVerifiedAt DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
 
-  memberships Membership[]
-  sessions    Session[]
-  accounts    Account[]
-  auditLogs   AuditLog[]   @relation("AuditActor")
+  memberships            Membership[]
+  sessions               Session[]
+  accounts               Account[]
+  auditLogs              AuditLog[]              @relation("AuditActor")
+  passwordResetTokens    PasswordResetToken[]
+  emailVerificationTokens EmailVerificationToken[]
 
   @@index([isActive])
+}
+
+/// Single-use, hashed, expiring tokens for the password-reset flow.
+model PasswordResetToken {
+  id        String    @id @default(cuid())
+  userId    String
+  tokenHash String    @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+/// Single-use, hashed, expiring tokens for email verification.
+model EmailVerificationToken {
+  id        String    @id @default(cuid())
+  userId    String
+  tokenHash String    @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
 }
 
 /// User <-> Clinic membership with the clinic-scoped role (M:N).

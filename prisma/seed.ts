@@ -1,27 +1,13 @@
 /**
- * Phase 0 seed: demo clinic + one user per role (password: ChangeMe_2026!).
- * Safe to re-run — upserts only.
- *
- * Password hashing uses node:crypto scrypt for now; Argon2id arrives with the
- * auth module in Phase 1 (seed hashes are re-set then).
+ * Phase 1 seed: demo clinic + one user per role.
+ * Passwords are argon2id-hashed via the app's password module.
+ * Safe to re-run — upserts only (re-runs refresh password hashes).
  */
-import { randomBytes, scrypt as scryptCallback } from "node:crypto";
-import { promisify } from "node:util";
-
 import { PrismaClient, Role } from "@prisma/client";
 
-const prisma = new PrismaClient();
-const scrypt = promisify(scryptCallback) as (
-  password: string,
-  salt: Buffer,
-  keylen: number,
-) => Promise<Buffer>;
+import { hashPassword } from "../src/lib/auth/password";
 
-async function hashPassword(password: string): Promise<string> {
-  const salt = randomBytes(16);
-  const derived = await scrypt(password, salt, 32);
-  return `scrypt$${salt.toString("hex")}$${derived.toString("hex")}`;
-}
+const prisma = new PrismaClient();
 
 const ROLE_SEEDS: Array<{ role: Role; name: string; email: string }> = [
   { role: Role.SUPER_ADMIN, name: "Ada Super", email: "super@cliniccare.local" },

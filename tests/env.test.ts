@@ -10,6 +10,7 @@ const BASE_ENV = {
   NODE_ENV: "development",
   LOG_LEVEL: "info",
   APP_URL: "http://localhost:3000",
+  AUTH_SECRET: "0123456789abcdef0123456789abcdef01234567",
 };
 
 describe("env schema", () => {
@@ -20,7 +21,10 @@ describe("env schema", () => {
   });
 
   it("applies defaults for optional variables", () => {
-    const parsed = parseEnv({ DATABASE_URL: "postgresql://u:p@h:5432/d" });
+    const parsed = parseEnv({
+      DATABASE_URL: "postgresql://u:p@h:5432/d",
+      AUTH_SECRET: "0123456789abcdef0123456789abcdef01234567",
+    });
     expect(parsed.REDIS_URL).toBe("redis://localhost:6379");
     expect(parsed.APP_URL).toBe("http://localhost:3000");
     expect(parsed.NODE_ENV).toBe("development");
@@ -64,18 +68,39 @@ describe(".env.example contract", () => {
     return out;
   };
 
-  it("parses cleanly through the real schema", () => {
+  it("parses cleanly through the real schema once AUTH_SECRET is supplied", () => {
     const text = readFileSync(join(process.cwd(), ".env.example"), "utf8");
     const vars = parseDotenv(text);
-    const result = envSchema.safeParse(vars);
+    // AUTH_SECRET is deliberately user-supplied (empty in the example).
+    const result = envSchema.safeParse({ ...vars, AUTH_SECRET: "0123456789abcdef0123456789abcdef01234567" });
     expect(result.success).toBe(true);
   });
 
   it("provides every documented variable", () => {
     const text = readFileSync(join(process.cwd(), ".env.example"), "utf8");
     const vars = parseDotenv(text);
-    for (const key of ["DATABASE_URL", "REDIS_URL", "NODE_ENV", "LOG_LEVEL", "APP_URL"]) {
-      expect(vars[key]).toBeTruthy();
+    for (const key of [
+      "DATABASE_URL",
+      "REDIS_URL",
+      "NODE_ENV",
+      "LOG_LEVEL",
+      "APP_URL",
+      "AUTH_SECRET",
+      "MAIL_HOST",
+      "MAIL_PORT",
+      "MAIL_SECURE",
+    ]) {
+      expect(vars).toHaveProperty(key);
+    }
+  });
+
+  it("treats AUTH_SECRET as required (documented as empty in the example)", () => {
+    const text = readFileSync(join(process.cwd(), ".env.example"), "utf8");
+    const vars = parseDotenv(text);
+    const result = envSchema.safeParse(vars);
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.error.issues.some((i) => i.path.includes("AUTH_SECRET"))).toBe(true);
     }
   });
 });

@@ -16,6 +16,15 @@ export const envSchema = z.object({
   NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
   LOG_LEVEL: z.enum(["debug", "info", "warn", "error"]).default("info"),
   APP_URL: z.string().url().default("http://localhost:3000"),
+  /** Signs/hashes Auth.js session tokens. Generate with: openssl rand -base64 32 */
+  AUTH_SECRET: z.string().min(32, "AUTH_SECRET must be at least 32 characters"),
+  // SMTP (dev default: MailHog from docker/compose.yml)
+  MAIL_HOST: z.string().default("localhost"),
+  MAIL_PORT: z.coerce.number().int().default(1025),
+  MAIL_SECURE: z
+    .string()
+    .default("false")
+    .transform((v) => v === "true"),
 });
 
 export type Env = z.infer<typeof envSchema>;

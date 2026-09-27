@@ -12,6 +12,7 @@ concurrency:
 env:
   DATABASE_URL: postgresql://cliniccare:cliniccare@localhost:5432/cliniccare
   REDIS_URL: redis://localhost:6379
+  AUTH_SECRET: ci-only-secret-0123456789abcdef0123456789abcdef
   NEXT_TELEMETRY_DISABLED: "1"
 
 jobs:

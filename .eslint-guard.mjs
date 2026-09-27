@@ -20,6 +20,8 @@ const ALLOWED_ENV_FILES = [
   "src/lib/logger.ts", // reads LOG_LEVEL for pino config
   "src/app/api/health/route.ts", // reads package version
   "tests/db.test.ts", // validates process.env shape via schema
+  "tests/auth.test.ts", // CI env vars for DB-backed suites
+  "tests/auth.integration.test.ts", // CI env vars for DB-backed suites
 ];
 
 function toPosix(p) {
