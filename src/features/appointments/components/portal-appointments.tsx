@@ -9,6 +9,7 @@ import {
   patientRescheduleAppointmentAction,
 } from "@/features/appointments/actions";
 import type { DoctorListRow } from "@/features/doctors/queries";
+import { formatZoned, nextWeekdayLocalInput, toLocalInputValue } from "@/lib/timezone";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -22,16 +23,20 @@ export type PortalAppointment = {
   reason: string | null;
 };
 
-function fmt(iso: string): string {
-  return `${iso.slice(0, 10)} ${iso.slice(11, 16)} UTC`;
+/** `YYYY-MM-DD HH:MM (Zone)` — the clinic's wall clock, never the browser's. */
+function fmt(iso: string, timeZone: string): string {
+  return `${formatZoned(new Date(iso), timeZone)} (${timeZone})`;
 }
 
 export function PortalAppointments({
   appointments,
   doctors,
+  timeZone,
 }: {
   appointments: PortalAppointment[];
   doctors: DoctorListRow[];
+  /** Clinic timezone: patients read and type times on the clinic's clock. */
+  timeZone: string;
 }) {
   const router = useRouter();
   const [error, setError] = useState<string | null>(null);
@@ -78,7 +83,7 @@ export function PortalAppointments({
             {upcoming.map((a) => (
               <li key={a.id} className="rounded-md border p-3">
                 <p className="font-medium">
-                  {fmt(a.scheduledAt)} — {a.doctorName}
+                  {fmt(a.scheduledAt, timeZone)} — {a.doctorName}
                 </p>
                 <p className="text-muted-foreground">
                   {a.status.replaceAll("_", " ").toLowerCase()}
@@ -100,15 +105,15 @@ export function PortalAppointments({
                     }}
                   >
                     <Label htmlFor={`move-${a.id}`} className="block text-xs text-muted-foreground">
-                      Move to (UTC)
+                      Move to ({timeZone})
                     </Label>
                     <Input
                       id={`move-${a.id}`}
                       name="scheduledAt"
                       type="datetime-local"
                       required
-                      aria-label={`Move appointment of ${fmt(a.scheduledAt)}`}
-                      defaultValue={a.scheduledAt.slice(0, 16)}
+                      aria-label={`Move appointment of ${fmt(a.scheduledAt, timeZone)}`}
+                      defaultValue={toLocalInputValue(new Date(a.scheduledAt), timeZone)}
                       className="mt-1"
                     />
                     <Button className="mt-2" type="submit" variant="outline" size="sm" disabled={pending}>
@@ -168,9 +173,17 @@ export function PortalAppointments({
           </div>
           <div>
             <Label htmlFor="book-when" className="block text-xs text-muted-foreground">
-              When (UTC)
+              When ({timeZone})
             </Label>
-            <Input id="book-when" name="scheduledAt" type="datetime-local" required aria-label="When" className="mt-1" />
+            <Input
+              id="book-when"
+              name="scheduledAt"
+              type="datetime-local"
+              required
+              aria-label="When"
+              defaultValue={nextWeekdayLocalInput(timeZone)}
+              className="mt-1"
+            />
           </div>
           <div className="grow">
             <Label htmlFor="book-reason" className="block text-xs text-muted-foreground">
@@ -190,7 +203,7 @@ export function PortalAppointments({
           <ul className="space-y-1 text-muted-foreground">
             {past.map((a) => (
               <li key={a.id}>
-                {fmt(a.scheduledAt)} — {a.doctorName} · {a.status.replaceAll("_", " ").toLowerCase()}
+                {fmt(a.scheduledAt, timeZone)} — {a.doctorName} · {a.status.replaceAll("_", " ").toLowerCase()}
               </li>
             ))}
           </ul>

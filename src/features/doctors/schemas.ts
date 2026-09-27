@@ -47,3 +47,34 @@ export const upsertDoctorScheduleSchema = z
   );
 
 export type UpsertDoctorScheduleInput = z.infer<typeof upsertDoctorScheduleSchema>;
+
+const isoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Use YYYY-MM-DD");
+const clock = z.string().regex(/^([01]\d|2[0-3]):([0-5]\d)$/, "Use HH:MM");
+
+const optionalText = (max: number) =>
+  z
+    .string()
+    .trim()
+    .max(max)
+    .transform((v) => (v === "" ? undefined : v))
+    .optional();
+
+export const addTimeOffSchema = z
+  .object({
+    doctorId: z.string().min(1),
+    date: isoDate,
+    isFullDay: z.coerce.boolean().default(false),
+    startTime: clock.optional().or(z.literal("")),
+    endTime: clock.optional().or(z.literal("")),
+    reason: optionalText(200),
+  })
+  .refine((input) => input.isFullDay || (!!input.startTime && !!input.endTime), {
+    message: "Provide start and end times (or mark the whole day off).",
+    path: ["startTime"],
+  });
+
+export type AddTimeOffSchemaInput = z.infer<typeof addTimeOffSchema>;
+
+export const removeTimeOffSchema = z.object({
+  timeOffId: z.string().min(1),
+});

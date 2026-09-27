@@ -9,6 +9,14 @@ export type ScheduleRow = {
   slotMinutes: number;
 };
 
+export type TimeOffRow = {
+  id: string;
+  startsAt: string;
+  endsAt: string;
+  reason: string | null;
+  isFullDay: boolean;
+};
+
 export type DoctorListRow = {
   id: string;
   userId: string;
@@ -16,6 +24,7 @@ export type DoctorListRow = {
   email: string;
   specialization: string;
   schedules: ScheduleRow[];
+  upcomingTimeOff: TimeOffRow[];
 };
 
 const DAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
@@ -38,6 +47,7 @@ export async function listDoctors(clinicId: string): Promise<DoctorListRow[]> {
     include: {
       user: { select: { name: true, email: true } },
       schedules: { where: { isDeleted: false }, orderBy: { weekday: "asc" } },
+      timeOff: { where: { endsAt: { gte: new Date() } }, orderBy: { startsAt: "asc" }, take: 20 },
     },
     orderBy: { user: { name: "asc" } },
   });
@@ -54,5 +64,30 @@ export async function listDoctors(clinicId: string): Promise<DoctorListRow[]> {
       endMinute: s.endMinute,
       slotMinutes: s.slotMinutes,
     })),
+    upcomingTimeOff: d.timeOff.map((t) => ({
+      id: t.id,
+      startsAt: t.startsAt.toISOString(),
+      endsAt: t.endsAt.toISOString(),
+      reason: t.reason,
+      isFullDay: t.isFullDay,
+    })),
   }));
+}
+
+/** Doctor-role staff members who do not have a profile yet (admin picker). */
+export async function listDoctorProfileCandidates(
+  clinicId: string,
+): Promise<Array<{ userId: string; name: string; email: string }>> {
+  const memberships = await db.membership.findMany({
+    where: { clinicId, role: "DOCTOR", user: { isActive: true, doctorProfile: null } },
+    include: { user: { select: { id: true, name: true, email: true } } },
+    orderBy: { user: { name: "asc" } },
+  });
+  return memberships.map((m) => ({ userId: m.user.id, name: m.user.name, email: m.user.email }));
+}
+
+/** The clinic's IANA timezone (every schedule/timeoff value is clinic-local). */
+export async function getClinicTimeZone(clinicId: string): Promise<string> {
+  const clinic = await db.clinic.findUnique({ where: { id: clinicId }, select: { timezone: true } });
+  return clinic?.timezone ?? "UTC";
 }

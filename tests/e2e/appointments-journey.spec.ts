@@ -43,40 +43,51 @@ test.describe("appointment module journey", () => {
   test("receptionist books and reschedules; doctor sees own calendar; patient cancels and gets notified", async ({
     page,
   }) => {
-    const slot = pickSlot();
-
-    // The concrete next-business-day datetime to type into the booking form.
+    // The concrete next-business-day date to type into the booking forms.
     const businessDay = new Date();
     businessDay.setUTCDate(businessDay.getUTCDate() + 1);
     while (businessDay.getUTCDay() === 0 || businessDay.getUTCDay() === 6)
       businessDay.setUTCDate(businessDay.getUTCDate() + 1);
-    const startIso = `${businessDay.toISOString().slice(0, 10)}T${slot.start}`;
-    const movedIso = `${businessDay.toISOString().slice(0, 10)}T${slot.moved}`;
+    const businessDate = businessDay.toISOString().slice(0, 10);
 
     // --- Receptionist: book ---
     await login(page, RECEPTIONIST);
-    await page.goto("/appointments");
-    await expect(page.getByRole("heading", { name: "Appointments" })).toBeVisible();
 
-    await page.getByRole("button", { name: "Book appointment" }).click();
-    await page.getByLabel("Doctor").selectOption({ label: "Dr. Dana Doctor — General Medicine" });
-    await page.getByLabel("Patient").selectOption({ label: "P-2026-00001 — Patient, Paul" });
-    await page.getByLabel("Date and time").fill(startIso);
-    await page.getByLabel("Reason").fill("E2E journey visit");
-    // The booking runs as a POST server action that can take a few seconds
-    // (serializable transaction); await its response instead of racing it.
-    const bookResponse = page.waitForResponse(
-      (r) => r.request().method() === "POST" && r.request().url().includes("/appointments"),
-    );
-    await page.getByRole("button", { name: "Book", exact: true }).click();
-    const bookResp = await bookResponse;
-    // Response body can be unavailable for the action round-trip; the await
-    // itself is the guarantee the server action (and its commit) finished.
-    const bookResult = (await bookResp.json().catch(() => ({}))) as { ok?: boolean; error?: string };
-    expect(bookResult.ok, `booking failed: ${bookResult.error ?? "no JSON body"}`).not.toBe(false);
+    // A reused local database keeps appointments from earlier runs, so a random
+    // slot may already be taken: try a few before giving up.
+    let slot = pickSlot();
+    let booked = false;
+    for (let attempt = 0; attempt < 4 && !booked; attempt += 1) {
+      slot = pickSlot();
+      await page.goto("/appointments");
+      await expect(page.getByRole("heading", { name: "Appointments" })).toBeVisible();
 
-    // The calendar (week of the booking) must show the new slot.
-    await page.goto(`/appointments?week=${slot.week}`);
+      await page.getByRole("button", { name: "Book appointment" }).click();
+      await page.getByLabel("Doctor").selectOption({ label: "Dr. Dana Doctor — General Medicine" });
+      await page.getByLabel("Patient").selectOption({ label: "P-2026-00001 — Patient, Paul" });
+      await page.getByLabel("Date and time").fill(`${businessDate}T${slot.start}`);
+      await page.getByLabel("Reason").fill("E2E journey visit");
+      // The booking runs as a POST server action that can take a few seconds
+      // (serializable transaction); await its response instead of racing it.
+      const bookResponse = page.waitForResponse(
+        (r) => r.request().method() === "POST" && r.request().url().includes("/appointments"),
+      );
+      await page.getByRole("button", { name: "Book", exact: true }).click();
+      // The response body can be unavailable for the action round-trip, so the
+      // card below — not the body — is the evidence that the booking committed.
+      await (await bookResponse).json().catch(() => ({}));
+
+      await page.goto(`/appointments?week=${slot.week}`);
+      booked = await page
+        .locator("li", { hasText: `${slot.start} · Paul Patient` })
+        .first()
+        .waitFor({ state: "visible", timeout: 5_000 })
+        .then(() => true)
+        .catch(() => false);
+    }
+    expect(booked, "no free slot could be booked in four attempts").toBe(true);
+
+    const movedIso = `${businessDate}T${slot.moved}`;
     const bookedCard = page.locator("li", { hasText: `${slot.start} · Paul Patient` });
     await expect(bookedCard).toBeVisible({ timeout: 15_000 });
 
@@ -110,7 +121,8 @@ test.describe("appointment module journey", () => {
     await page.goto("/portal");
     await expect(page.getByRole("heading", { name: /Welcome, Paul/ })).toBeVisible();
 
-    const upcomingCard = page.locator("li", { hasText: `${slot.moved} UTC — Dr. Dana Doctor` });
+    // The portal labels times as clinic-local `HH:MM (Zone)`; the demo clinic is UTC.
+    const upcomingCard = page.locator("li", { hasText: `${slot.moved} (UTC) — Dr. Dana Doctor` });
     await expect(upcomingCard).toBeVisible();
     await upcomingCard.getByRole("button", { name: "Cancel", exact: true }).click();
     await expect(page.getByText("Appointment cancelled.")).toBeVisible({ timeout: 15_000 });

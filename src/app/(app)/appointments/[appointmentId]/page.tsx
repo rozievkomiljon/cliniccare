@@ -5,13 +5,16 @@ import {
   AppointmentActions,
 } from "@/features/appointments/components/appointment-actions";
 import { getAppointmentForClinic } from "@/features/appointments/queries";
+import { getClinicTimeZone } from "@/features/doctors/queries";
+import { formatZoned } from "@/lib/timezone";
 import { hasPermission } from "@/lib/rbac/permissions";
 import { requirePagePermission } from "@/lib/rbac/page-guard";
 
 export const metadata = { title: "Appointment" };
 
-function fmtWhen(iso: string): string {
-  return `${iso.slice(0, 10)} ${iso.slice(11, 16)} UTC`;
+/** Clinic-local wall clock with the zone named, so no reader has to guess. */
+function whenLabel(iso: string, timeZone: string): string {
+  return `${formatZoned(new Date(iso), timeZone)} (${timeZone})`;
 }
 
 export default async function AppointmentDetailPage({
@@ -21,7 +24,11 @@ export default async function AppointmentDetailPage({
 }) {
   const session = await requirePagePermission("schedule:view");
   const { appointmentId } = await params;
-  const appointment = await getAppointmentForClinic(session.activeClinicId ?? "", appointmentId);
+  const clinicId = session.activeClinicId ?? "";
+  const [appointment, timeZone] = await Promise.all([
+    getAppointmentForClinic(clinicId, appointmentId),
+    getClinicTimeZone(clinicId),
+  ]);
   if (!appointment) notFound();
 
   const canManage = hasPermission(session.activeRole, "appointments:manage");
@@ -39,7 +46,7 @@ export default async function AppointmentDetailPage({
           {appointment.status.replaceAll("_", " ")}
         </p>
         <h1 className="text-2xl font-semibold tracking-tight">
-          {appointment.patientName} · {fmtWhen(appointment.scheduledAt)}
+          {appointment.patientName} · {whenLabel(appointment.scheduledAt, timeZone)}
         </h1>
         <p className="mt-1 text-sm text-muted-foreground">
           {appointment.durationMinutes} min with {appointment.doctorName}
@@ -47,7 +54,7 @@ export default async function AppointmentDetailPage({
         </p>
       </header>
 
-      {canManage ? <AppointmentActions appointment={appointment} /> : null}
+      {canManage ? <AppointmentActions appointment={appointment} timeZone={timeZone} /> : null}
 
       <section className="rounded-lg border bg-white p-5 dark:bg-zinc-900">
         <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-muted-foreground">
@@ -60,7 +67,7 @@ export default async function AppointmentDetailPage({
                 {ev.type} <span className="font-normal text-muted-foreground">by {ev.actorName}</span>
               </p>
               {ev.detail ? <p className="text-muted-foreground">{ev.detail}</p> : null}
-              <p className="text-xs text-muted-foreground">{fmtWhen(ev.createdAt.toISOString())}</p>
+              <p className="text-xs text-muted-foreground">{whenLabel(ev.createdAt.toISOString(), timeZone)}</p>
             </li>
           ))}
           {appointment.events.length === 0 ? (
