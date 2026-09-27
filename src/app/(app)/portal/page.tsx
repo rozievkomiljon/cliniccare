@@ -1,6 +1,7 @@
 import Link from "next/link";
 
 import { PortalAppointments } from "@/features/appointments/components/portal-appointments";
+import { PortalClinicalSummary } from "@/features/clinical/components/portal-clinical";
 import { listAppointmentsForPatient } from "@/features/appointments/queries";
 import { getClinicTimeZone, listDoctors } from "@/features/doctors/queries";
 import { getPatientForPortalUser } from "@/features/patients/queries";
@@ -41,6 +42,8 @@ export default async function PortalPage() {
         doctors={await listDoctors(patient.clinicId)}
         timeZone={await getClinicTimeZone(patient.clinicId)}
       />
+
+      <PortalClinicalSummary patientId={patient.id} clinicId={patient.clinicId} />
 
       <section className="grid gap-4 lg:grid-cols-2">
         <div className="rounded-lg border p-5 text-sm">

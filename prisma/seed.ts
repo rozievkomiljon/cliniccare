@@ -230,8 +230,63 @@ async function main(): Promise<void> {
     }
   }
 
+  // Phase 4: one signed demo encounter with vitals and a note (idempotent).
+  const hasClinical = await prisma.encounter.findFirst({ where: { clinicId: clinic.id } });
+  if (!hasClinical) {
+    const paul = await prisma.patient.findFirst({ where: { clinicId: clinic.id, mrn: "P-2026-00001" } });
+    if (paul) {
+      const occurredAt = nextBusinessDayAt(1, 10);
+      const encounter = await prisma.encounter.create({
+        data: {
+          clinicId: clinic.id,
+          patientId: paul.id,
+          doctorId: doctor.id,
+          occurredAt,
+          kind: "CONSULTATION",
+          chiefComplaint: "Annual check-up",
+          diagnosis: "Essential hypertension, controlled",
+          plan: "Continue current medication; review blood pressure in three months.",
+          status: "SIGNED",
+          signedAt: occurredAt,
+          signedByUserId: doctorUser.id,
+          signedByName: doctorUser.name,
+          createdById: doctorUser.id,
+          createdByName: doctorUser.name,
+        },
+      });
+      await prisma.clinicalNote.create({
+        data: {
+          clinicId: clinic.id,
+          patientId: paul.id,
+          encounterId: encounter.id,
+          kind: "NOTE",
+          body: "Patient reports good adherence. No adverse effects. Advised on diet and activity.",
+          authorUserId: doctorUser.id,
+          authorName: doctorUser.name,
+        },
+      });
+      await prisma.vital.create({
+        data: {
+          clinicId: clinic.id,
+          patientId: paul.id,
+          encounterId: encounter.id,
+          recordedAt: occurredAt,
+          systolic: 128,
+          diastolic: 82,
+          pulse: 72,
+          temperature: 36.7,
+          spo2: 98,
+          weightKg: 81.4,
+          heightCm: 178,
+          recordedById: doctorUser.id,
+          recordedByName: doctorUser.name,
+        },
+      });
+    }
+  }
+
   console.log(
-    `Seeded clinic "${clinic.name}", ${ROLE_SEEDS.length} role users, ${DEMO_PATIENTS.length} patients, ${SERVICES.length} services, 1 doctor schedule, demo appointments.`,
+    `Seeded clinic "${clinic.name}", ${ROLE_SEEDS.length} role users, ${DEMO_PATIENTS.length} patients, ${SERVICES.length} services, 1 doctor schedule, demo appointments, 1 signed clinical record.`,
   );
 }
 

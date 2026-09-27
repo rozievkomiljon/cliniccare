@@ -1,7 +1,14 @@
+import Link from "next/link";
 import { notFound } from "next/navigation";
 
 import { PatientDocuments } from "@/features/patients/components/patient-documents";
+import { StartEncounterForm, VitalsForm } from "@/features/clinical/components/clinical-record";
+import { fmtStamp, kindLabel, vitalsSummary } from "@/features/clinical/format";
+import { listEncountersForPatient, listVitalsForPatient } from "@/features/clinical/queries";
+import { getClinicTimeZone, listDoctors } from "@/features/doctors/queries";
+import { getDoctorProfileForUser } from "@/features/doctors/service";
 import { getPatientForClinic } from "@/features/patients/queries";
+import { hasPermission } from "@/lib/rbac/permissions";
 import { requirePagePermission } from "@/lib/rbac/page-guard";
 
 export const metadata = { title: "Patient" };
@@ -41,6 +48,26 @@ export default async function PatientProfilePage({
     session.activeRole === "NURSE" ||
     session.activeRole === "CLINIC_ADMIN" ||
     session.user.isSuperAdmin;
+
+  const canViewClinical = hasPermission(session.activeRole, "clinical:view");
+  const canAuthor = hasPermission(session.activeRole, "clinical:author");
+  const canRecordVitals = hasPermission(session.activeRole, "vitals:record");
+
+  // Clinical rows load only for roles that may read them. Hiding the section is
+  // cosmetic; the permission check above is the boundary.
+  const clinical = canViewClinical
+    ? await (async () => {
+        const clinicId = session.activeClinicId ?? "";
+        const [encounters, vitals, timeZone, doctors, own] = await Promise.all([
+          listEncountersForPatient(clinicId, patientId),
+          listVitalsForPatient(clinicId, patientId),
+          getClinicTimeZone(clinicId),
+          canAuthor ? listDoctors(clinicId) : Promise.resolve([]),
+          session.activeRole === "DOCTOR" ? getDoctorProfileForUser(session.user.id) : Promise.resolve(null),
+        ]);
+        return { encounters, vitals, timeZone, doctors, ownProfileId: own?.id };
+      })()
+    : null;
 
   const rows: Array<[string, string]> = [
     ["MRN", patient.mrn],
@@ -106,6 +133,92 @@ export default async function PatientProfilePage({
           )}
         </div>
       </section>
+
+      {clinical ? (
+        <section className="space-y-3">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+              Clinical record
+            </h2>
+            {canAuthor ? (
+              <StartEncounterForm
+                patientId={patient.id}
+                timeZone={clinical.timeZone}
+                defaultDoctorId={clinical.ownProfileId ?? undefined}
+                doctors={clinical.doctors.map((d) => ({
+                  id: d.id,
+                  name: d.name,
+                  specialization: d.specialization,
+                }))}
+              />
+            ) : null}
+          </div>
+
+          {clinical.encounters.length === 0 ? (
+            <p className="rounded-lg border bg-white p-5 text-sm text-muted-foreground dark:bg-zinc-900">
+              No encounters recorded yet.
+            </p>
+          ) : (
+            <ul className="space-y-2">
+              {clinical.encounters.map((e) => (
+                <li key={e.id} className="rounded-lg border bg-white p-4 text-sm dark:bg-zinc-900">
+                  <div className="flex flex-wrap items-start justify-between gap-2">
+                    <div>
+                      <p className="font-medium">
+                        {fmtStamp(e.occurredAt, clinical.timeZone)} · {kindLabel(e.kind)}{" "}
+                        <span
+                          className={
+                            "rounded border px-1.5 py-0.5 text-xs " +
+                            (e.status === "SIGNED"
+                              ? "border-teal-600/40 text-teal-700 dark:text-teal-400"
+                              : "border-amber-500/50 text-amber-700 dark:text-amber-400")
+                          }
+                        >
+                          {e.status === "SIGNED" ? "signed" : "draft"}
+                        </span>
+                      </p>
+                      <p className="text-muted-foreground">
+                        {e.doctorName ? `${e.doctorName} · ` : ""}
+                        {e.diagnosis ?? "No diagnosis yet"} · {e.noteCount} note(s)
+                        {e.hasVitals ? " · vitals" : ""}
+                      </p>
+                    </div>
+                    <Link
+                      href={`/patients/${patient.id}/encounters/${e.id}`}
+                      className="text-teal-700 hover:underline dark:text-teal-400"
+                    >
+                      open record →
+                    </Link>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
+
+          <div className="rounded-lg border bg-white p-5 text-sm dark:bg-zinc-900">
+            <h3 className="mb-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+              Latest vitals
+            </h3>
+            {clinical.vitals.length === 0 ? (
+              <p className="text-muted-foreground">No vitals recorded.</p>
+            ) : (
+              <ul className="space-y-1">
+                {clinical.vitals.slice(0, 5).map((v) => (
+                  <li key={v.id} className="flex flex-wrap justify-between gap-2">
+                    <span>{vitalsSummary(v)}</span>
+                    <span className="text-muted-foreground">{fmtStamp(v.recordedAt, clinical.timeZone)}</span>
+                  </li>
+                ))}
+              </ul>
+            )}
+            {canRecordVitals ? (
+              <div className="mt-3 border-t pt-3">
+                <VitalsForm patientId={patient.id} />
+              </div>
+            ) : null}
+          </div>
+        </section>
+      ) : null}
 
       <section className="space-y-3">
         <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">

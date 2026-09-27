@@ -27,6 +27,9 @@ model Clinic {
   doctorProfiles DoctorProfile[]
   appointments   Appointment[]
   notifications  Notification[]
+  encounters     Encounter[]
+  clinicalNotes  ClinicalNote[]
+  vitals         Vital[]
 
   @@index([slug])
 }
@@ -215,6 +218,9 @@ model Patient {
   attachments   Attachment[]
   appointments  Appointment[]
   notifications Notification[]
+  encounters    Encounter[]
+  clinicalNotes ClinicalNote[]
+  vitals        Vital[]
 
   @@unique([clinicId, mrn])
   @@index([clinicId, isDeleted, lastName])
@@ -311,6 +317,7 @@ model DoctorProfile {
   schedules    DoctorSchedule[]
   timeOff      DoctorTimeOff[]
   appointments Appointment[]    @relation("AppointmentDoctor")
+  encounters   Encounter[]      @relation("EncounterDoctor")
 
   @@index([clinicId, isDeleted])
 }
@@ -374,7 +381,8 @@ model Appointment {
   clinic  Clinic             @relation(fields: [clinicId], references: [id], onDelete: Cascade)
   doctor  DoctorProfile      @relation("AppointmentDoctor", fields: [doctorId], references: [id], onDelete: Cascade)
   patient Patient            @relation(fields: [patientId], references: [id], onDelete: Cascade)
-  events  AppointmentEvent[]
+  events    AppointmentEvent[]
+  encounter Encounter?
 
   @@index([clinicId, scheduledAt])
   @@index([doctorId, scheduledAt])
@@ -418,4 +426,113 @@ model Notification {
 
   @@index([clinicId, patientId, createdAt])
   @@index([userId, readAt])
+}
+
+// ---------------------------------------------------------------------------
+// Phase 4 — medical records. Clinical rows are append-only (see AGENTS rule 7):
+// an Encounter is editable only while OPEN, and everything else is written once.
+// ---------------------------------------------------------------------------
+
+enum EncounterKind {
+  CONSULTATION
+  FOLLOW_UP
+  PROCEDURE
+  TELEHEALTH
+}
+
+enum EncounterStatus {
+  OPEN
+  SIGNED
+}
+
+enum ClinicalNoteKind {
+  NOTE
+  ADDENDUM
+  PROCEDURE
+}
+
+/// One clinical visit. While OPEN the author may still correct it; signing is
+/// one-way and locks the field set, so later corrections must arrive as an
+/// addendum note instead of a silent edit.
+model Encounter {
+  id             String          @id @default(cuid())
+  clinicId       String
+  patientId      String
+  doctorId       String?
+  /// The visit this encounter documents, when it came from the calendar.
+  appointmentId  String?         @unique
+  /// Instant the encounter happened (stored UTC).
+  occurredAt     DateTime
+  kind           EncounterKind   @default(CONSULTATION)
+  chiefComplaint String?
+  diagnosis      String?
+  plan           String?
+  status         EncounterStatus @default(OPEN)
+  signedAt       DateTime?
+  signedByUserId String?
+  signedByName   String?
+  createdById    String
+  createdByName  String
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+
+  clinic      Clinic         @relation(fields: [clinicId], references: [id], onDelete: Cascade)
+  patient     Patient        @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  doctor      DoctorProfile? @relation("EncounterDoctor", fields: [doctorId], references: [id], onDelete: SetNull)
+  appointment Appointment?   @relation(fields: [appointmentId], references: [id], onDelete: SetNull)
+  notes       ClinicalNote[]
+  vitals      Vital[]
+
+  @@index([clinicId, occurredAt])
+  @@index([patientId, occurredAt])
+  @@index([doctorId, occurredAt])
+}
+
+/// Append-only narrative on an encounter (or directly on the record). Rows are
+/// never updated or deleted — a correction is a new addendum row.
+model ClinicalNote {
+  id           String           @id @default(cuid())
+  clinicId     String
+  patientId    String
+  encounterId  String?
+  kind         ClinicalNoteKind @default(NOTE)
+  body         String
+  authorUserId String
+  authorName   String
+  createdAt    DateTime         @default(now())
+
+  clinic    Clinic     @relation(fields: [clinicId], references: [id], onDelete: Cascade)
+  patient   Patient    @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  encounter Encounter? @relation(fields: [encounterId], references: [id], onDelete: Cascade)
+
+  @@index([clinicId, patientId, createdAt])
+  @@index([encounterId, createdAt])
+}
+
+/// Append-only observation set — one row per recording session. Every field is
+/// optional so a partial set (blood pressure only, say) is storable.
+model Vital {
+  id             String   @id @default(cuid())
+  clinicId       String
+  patientId      String
+  encounterId    String?
+  recordedAt     DateTime @default(now())
+  systolic       Int?
+  diastolic      Int?
+  pulse          Int?
+  temperature    Float?
+  spo2           Int?
+  weightKg       Float?
+  heightCm       Float?
+  notes          String?
+  recordedById   String
+  recordedByName String
+  createdAt      DateTime @default(now())
+
+  clinic    Clinic     @relation(fields: [clinicId], references: [id], onDelete: Cascade)
+  patient   Patient    @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  encounter Encounter? @relation(fields: [encounterId], references: [id], onDelete: Cascade)
+
+  @@index([clinicId, patientId, recordedAt])
+  @@index([encounterId, recordedAt])
 }
