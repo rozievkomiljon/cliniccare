@@ -40,6 +40,14 @@ boundaries, roadmap).
 - `docker/` — compose files; `Dockerfile` builds the production image
 - `tests/` — vitest suites + local smoke script
 
+## Testing
+
+- `npm test` needs `DATABASE_URL` pointing at a reachable Postgres; the
+  DB-backed suites skip themselves without one.
+- `npx playwright test` resets the E2E database at startup, so a local run
+  starts from the same state as CI's ephemeral one. Set `E2E_DATABASE_URL` when
+  the embedded Postgres cannot start (e.g. an elevated shell on Windows).
+
 ## Phase status
 
 - [x] Phase 0 — bootstrap
@@ -53,5 +61,8 @@ boundaries, roadmap).
   conflicts, events, notifications, calendar, detail and portal surfaces all
   read the clinic's wall clock (see `src/lib/timezone.ts`); doctor profile and
   absence administration; slot-grid day view (`/appointments?view=day`)
-- [ ] Phase 4 — medical records (MVP complete)
+- [x] Phase 4 — medical records: append-only encounters (editable only while
+  OPEN, signing locks the field set), clinical notes and vitals, gated by
+  `clinical:view` / `clinical:author` / `vitals:record`; signed visits surface
+  in the patient portal
 - [ ] Phase 5–9 — laboratory, pharmacy, billing, reports/AI, hardening

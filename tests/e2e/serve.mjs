@@ -42,8 +42,12 @@ export function createE2EServer({ log = (msg) => console.log(`[e2e] ${msg}`) } =
       NEXT_TELEMETRY_DISABLED: "1",
     };
 
-    log("applying migrations + seed…");
-    execSync("npx prisma migrate deploy", { env, stdio: "pipe" });
+    // An E2E database is disposable by definition (CI gets a fresh one), so a
+    // reused local database is reset to the same starting point. Without this,
+    // rows accumulate across runs until demo fixtures fall off the first page of
+    // the UI pickers and unrelated specs start failing.
+    log("resetting database, applying migrations + seed…");
+    execSync("npx prisma migrate reset --force --skip-seed", { env, stdio: "pipe" });
     execSync("npx tsx prisma/seed.ts", { env, stdio: "pipe" });
     log("database ready");
 
