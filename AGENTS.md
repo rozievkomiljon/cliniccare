@@ -43,7 +43,9 @@ boundaries, roadmap).
 - [x] Phase 0 — bootstrap
 - [x] Phase 1 — auth (Auth.js v5 DB sessions, argon2id), RBAC enforcement
   (`requirePermission`), staff management, audit viewer, role dashboards
-- [ ] Phase 2 — patients & dashboards
-- [ ] Phase 3 — scheduling & appointments
+- [x] Phase 2 — patients & dashboards
+- [x] Phase 3 — doctor profiles/schedules, appointments (double-booking
+  impossible via partial unique index + serializable availability check),
+  in-app notifications, portal self-service
 - [ ] Phase 4 — medical records (MVP complete)
 - [ ] Phase 5–9 — laboratory, pharmacy, billing, reports/AI, hardening
