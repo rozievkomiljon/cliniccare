@@ -22,6 +22,7 @@ const ALLOWED_ENV_FILES = [
   "tests/db.test.ts", // validates process.env shape via schema
   "tests/auth.test.ts", // CI env vars for DB-backed suites
   "tests/auth.integration.test.ts", // CI env vars for DB-backed suites
+  "src/features/auth/actions.ts", // AUTH_RATE_LIMIT_PER_MIN tuning knob (server action)
 ];
 
 function toPosix(p) {

@@ -1,10 +1,10 @@
-import { requirePermission } from "@/lib/rbac/guard";
+import { requirePagePermission } from "@/lib/rbac/page-guard";
 import { listAuditLog } from "@/features/audit/queries";
 
 export const metadata = { title: "Audit log" };
 
 export default async function AuditPage() {
-  const session = await requirePermission("audit:view");
+  const session = await requirePagePermission("audit:view");
   const rows = await listAuditLog(session.activeClinicId ?? "", 200);
 
   return (

@@ -1,11 +1,11 @@
-import { requirePermission } from "@/lib/rbac/guard";
+import { requirePagePermission } from "@/lib/rbac/page-guard";
 import { listStaff } from "@/features/staff/queries";
 import { StaffTable } from "@/features/staff/components/staff-table";
 
 export const metadata = { title: "Staff" };
 
 export default async function StaffPage() {
-  const session = await requirePermission("staff:manage");
+  const session = await requirePagePermission("staff:manage");
   const staff = await listStaff(session.activeClinicId ?? "");
 
   return (

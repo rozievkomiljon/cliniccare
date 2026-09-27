@@ -11,6 +11,7 @@ const PUBLIC_PATHS: readonly string[] = [
   "/forgot-password",
   "/reset-password",
   "/verify-email",
+  "/forbidden",
   "/api/auth",
   "/api/health",
 ];
@@ -37,5 +38,7 @@ export function middleware(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/((?!_next/static|_next/image|favicon.ico).*)"],
+  // _next/static, _next/image, favicon.ico are static assets; the remaining
+  // _next paths (hmr websocket, flight requests) must pass through untouched.
+  matcher: ["/((?!_next|favicon.ico).*)"],
 };

@@ -1,10 +1,10 @@
-import { requirePermission } from "@/lib/rbac/guard";
+import { requirePagePermission } from "@/lib/rbac/page-guard";
 import { db } from "@/lib/db";
 
 export const metadata = { title: "Clinics" };
 
 export default async function AdminClinicsPage() {
-  const session = await requirePermission("clinics:manage");
+  const session = await requirePagePermission("clinics:manage");
   const clinics = await db.clinic.findMany({
     where: { isDeleted: false },
     orderBy: { name: "asc" },

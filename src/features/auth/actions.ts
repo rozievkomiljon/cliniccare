@@ -28,21 +28,26 @@ export async function loginAction(rawInput: unknown): Promise<ActionResult<{ url
   }
   const { email, password } = parsed.data;
 
-  const limited = rateLimit(await clientKey("login"), 5, 60_000);
+  const perMinute = Number(process.env.AUTH_RATE_LIMIT_PER_MIN ?? 5);
+  const limited = rateLimit(await clientKey("login"), perMinute, 60_000);
   const perAccount = rateLimit(`login-account:${email.toLowerCase()}`, 10, 60 * 60_000);
   if (!limited.ok || !perAccount.ok) {
     return { ok: false, error: "Too many attempts. Try again later.", code: "RATE_LIMITED" };
   }
 
   try {
-    await signIn("credentials", { email, password, redirect: false });
+    // NOTE: credentials sign-in MUST use the native redirect flow — with
+    // redirect:false the auth callback route never runs, so no session row is
+    // created and no cookie is set (the canonical v5 pitfall). On success
+    // signIn throws Next's internal redirect, which we intentionally let
+    // propagate; only credential failures become typed ActionResult errors.
+    await signIn("credentials", { email, password, redirectTo: "/dashboard" });
     return { ok: true, data: { url: "/dashboard" } };
   } catch (err) {
     if (err instanceof AuthError) {
       return { ok: false, error: AUTH_ERRORS.invalid, code: "UNAUTHORIZED" };
     }
-    console.error("[auth] login failed unexpectedly", err);
-    return { ok: false, error: "Something went wrong. Please try again.", code: "INTERNAL" };
+    throw err; // includes Next's redirect digest — required for the flow to work
   }
 }
 

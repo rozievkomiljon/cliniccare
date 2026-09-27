@@ -1,9 +1,9 @@
-import { requirePermission } from "@/lib/rbac/guard";
+import { requirePagePermission } from "@/lib/rbac/page-guard";
 
 export const metadata = { title: "My health" };
 
 export default async function PortalPage() {
-  const session = await requirePermission("portal:access");
+  const session = await requirePagePermission("portal:access");
 
   return (
     <div className="space-y-6">

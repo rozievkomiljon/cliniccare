@@ -1,16 +1,18 @@
 /**
- * Auth.js v5 (next-auth@beta) with the database-session strategy: opaque,
- * revocable session tokens in Postgres behind an httpOnly SameSite=Lax
- * cookie. Credentials sign-in verifies argon2id hashes and audits every
- * attempt. The RBAC layer (src/lib/rbac/guard.ts) builds on `auth()`.
+ * Auth.js v5 with JWT sessions + database-backed revocation.
+ *
+ * Auth.js does NOT support the credentials provider with the database-session
+ * strategy (UnsupportedStrategy at runtime), so sessions are stateless JWTs in
+ * an httpOnly SameSite=Lax cookie. Revocability is preserved by stamping each
+ * token with its issue time and revalidating it against User.sessionsRevokedAt
+ * on every request in src/lib/rbac/guard.ts — password reset and a future
+ * "sign out everywhere" flip that stamp, invalidating every issued token.
  */
-import { PrismaAdapter } from "@auth/prisma-adapter";
 import NextAuth from "next-auth";
 import Credentials from "next-auth/providers/credentials";
 import { z } from "zod";
 
 import { verifyCredentials } from "@/features/auth/service";
-import { db } from "@/lib/db";
 
 const credentialsSchema = z.object({
   email: z.string().email().max(255),
@@ -18,8 +20,7 @@ const credentialsSchema = z.object({
 });
 
 export const { handlers, auth, signIn, signOut } = NextAuth({
-  adapter: PrismaAdapter(db),
-  session: { strategy: "database", maxAge: 7 * 24 * 60 * 60 },
+  session: { strategy: "jwt", maxAge: 7 * 24 * 60 * 60 },
   trustHost: true,
   pages: { signIn: "/login" },
   providers: [
@@ -32,18 +33,20 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       },
     }),
   ],
-  events: {
-    // Revocation safety net: sessions older than 48h are pruned on any sign-in.
-    signIn: async () => {
-      await db.session.deleteMany({
-        where: { expires: { lt: new Date(Date.now() - 48 * 60 * 60 * 1000) } },
-      });
-    },
-  },
   callbacks: {
-    session({ session, user }) {
-      session.user.id = user.id;
-      session.user.isSuperAdmin = user.isSuperAdmin ?? false;
+    // Stamp the token with its issue time (seconds) for revocation checks.
+    jwt({ token, user }) {
+      if (user) {
+        token.sub = user.id;
+        token.isSuperAdmin = Boolean((user as { isSuperAdmin?: boolean }).isSuperAdmin);
+        token.stamp = Math.floor(Date.now() / 1000);
+      }
+      return token;
+    },
+    session({ session, token }) {
+      session.user.id = token.sub ?? "";
+      session.user.isSuperAdmin = token.isSuperAdmin ?? false;
+      session.user.stamp = token.stamp;
       return session;
     },
   },
