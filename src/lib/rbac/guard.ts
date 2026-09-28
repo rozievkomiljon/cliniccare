@@ -105,3 +105,33 @@ export async function requirePermission(
     activeClinicName: target.clinicName,
   };
 }
+
+/**
+ * Authorizes the current session for ANY of `permissions`. For surfaces one
+ * workflow spans but different roles enter at different stages — the laboratory
+ * queue is opened by the bench, the catalog admin and the verifying doctor, and
+ * each stage keeps its own narrower permission on the action itself.
+ */
+export async function requireAnyPermission(
+  permissions: readonly Permission[],
+  options: { clinicId?: string } = {},
+): Promise<AppSession> {
+  const session = await getSession();
+  if (!session) throw new UnauthorizedError();
+
+  const target = options.clinicId
+    ? (session.memberships.find((m) => m.clinicId === options.clinicId) ?? null)
+    : (session.memberships[0] ?? null);
+
+  if (!target) throw new ForbiddenError("No clinic context for this action.");
+  if (!permissions.some((permission) => hasPermission(target.role, permission))) {
+    throw new ForbiddenError(`Missing permission: ${permissions.join(" or ")}`);
+  }
+
+  return {
+    ...session,
+    activeRole: target.role,
+    activeClinicId: target.clinicId,
+    activeClinicName: target.clinicName,
+  };
+}

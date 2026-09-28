@@ -63,19 +63,20 @@ function getNavForRole(role: string, isSuperAdmin: boolean) {
         },
       ];
     case "DOCTOR":
-    case "NURSE":
-      return [
-        {
-          label: "Care",
-          items: [
-            { href: "/dashboard", label: "Dashboard", enabled: true },
-            { href: "/patients", label: "Patients", enabled: true },
-            { href: "/appointments", label: "Appointments", enabled: true },
-            { href: "/doctors", label: "Doctors", enabled: true },
-            { href: "/notifications", label: "Notifications", enabled: true },
-          ],
-        },
+    case "NURSE": {
+      const careItems = [
+        { href: "/dashboard", label: "Dashboard", enabled: true },
+        { href: "/patients", label: "Patients", enabled: true },
+        { href: "/appointments", label: "Appointments", enabled: true },
+        { href: "/doctors", label: "Doctors", enabled: true },
+        { href: "/notifications", label: "Notifications", enabled: true },
       ];
+      // Doctors release laboratory results; the queue is the shortest path there.
+      if (role === "DOCTOR") {
+        careItems.push({ href: "/laboratory", label: "Laboratory", enabled: true });
+      }
+      return [{ label: "Care", items: careItems }];
+    }
     case "LAB_TECH":
       return [
         {

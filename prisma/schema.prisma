@@ -30,6 +30,8 @@ model Clinic {
   encounters     Encounter[]
   clinicalNotes  ClinicalNote[]
   vitals         Vital[]
+  labTests       LabTest[]
+  labOrders      LabOrder[]
 
   @@index([slug])
 }
@@ -221,6 +223,7 @@ model Patient {
   encounters    Encounter[]
   clinicalNotes ClinicalNote[]
   vitals        Vital[]
+  labOrders     LabOrder[]
 
   @@unique([clinicId, mrn])
   @@index([clinicId, isDeleted, lastName])
@@ -318,6 +321,7 @@ model DoctorProfile {
   timeOff      DoctorTimeOff[]
   appointments Appointment[]    @relation("AppointmentDoctor")
   encounters   Encounter[]      @relation("EncounterDoctor")
+  labOrders    LabOrder[]       @relation("LabOrderDoctor")
 
   @@index([clinicId, isDeleted])
 }
@@ -482,6 +486,7 @@ model Encounter {
   appointment Appointment?   @relation(fields: [appointmentId], references: [id], onDelete: SetNull)
   notes       ClinicalNote[]
   vitals      Vital[]
+  labOrders   LabOrder[]
 
   @@index([clinicId, occurredAt])
   @@index([patientId, occurredAt])
@@ -535,4 +540,127 @@ model Vital {
 
   @@index([clinicId, patientId, recordedAt])
   @@index([encounterId, recordedAt])
+}
+
+// ---------------------------------------------------------------------------
+// Phase 5 — laboratory. The catalog states what a clinic can order; an order is
+// a header plus one item per test. Results stay editable until the order is
+// verified, at which point the set locks (rule 7) and the portal shows it.
+// ---------------------------------------------------------------------------
+
+enum LabSpecimenType {
+  BLOOD
+  URINE
+  STOOL
+  SWAB
+  TISSUE
+  OTHER
+}
+
+enum LabOrderPriority {
+  ROUTINE
+  URGENT
+  STAT
+}
+
+enum LabOrderStatus {
+  ORDERED
+  COLLECTED
+  COMPLETED
+  VERIFIED
+  CANCELLED
+}
+
+enum LabResultFlag {
+  NORMAL
+  LOW
+  HIGH
+  CRITICAL
+}
+
+/// One orderable test in a clinic's catalog. `code` is unique per clinic;
+/// ordered items snapshot the name/unit/range so a later catalog edit can never
+/// rewrite a result that has already been reported.
+model LabTest {
+  id              String          @id @default(cuid())
+  clinicId        String
+  code            String
+  name            String
+  category        String          @default("GENERAL")
+  specimen        LabSpecimenType @default(BLOOD)
+  unit            String?
+  referenceRange  String?
+  turnaroundHours Int?
+  isActive        Boolean         @default(true)
+  isDeleted       Boolean         @default(false)
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+
+  clinic Clinic         @relation(fields: [clinicId], references: [id], onDelete: Cascade)
+  items  LabOrderItem[]
+
+  @@unique([clinicId, code])
+  @@index([clinicId, category, isDeleted])
+}
+
+/// A laboratory request: one patient, one or more tests, one workflow state.
+/// Transitions are ORDERED → COLLECTED → COMPLETED → VERIFIED, and CANCELLED
+/// from either of the first two; the service layer owns and enforces them.
+model LabOrder {
+  id              String           @id @default(cuid())
+  clinicId        String
+  patientId       String
+  doctorId        String?
+  encounterId     String?
+  status          LabOrderStatus   @default(ORDERED)
+  priority        LabOrderPriority @default(ROUTINE)
+  /// Clinical indication for the request — PHI, never logged or audited.
+  indication      String?
+  orderedById     String
+  orderedByName   String
+  orderedAt       DateTime         @default(now())
+  collectedAt     DateTime?
+  collectedByName String?
+  completedAt     DateTime?
+  verifiedAt      DateTime?
+  verifiedByName  String?
+  cancelledAt     DateTime?
+  cancelledByName String?
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+
+  clinic    Clinic         @relation(fields: [clinicId], references: [id], onDelete: Cascade)
+  patient   Patient        @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  doctor    DoctorProfile? @relation("LabOrderDoctor", fields: [doctorId], references: [id], onDelete: SetNull)
+  encounter Encounter?     @relation(fields: [encounterId], references: [id], onDelete: SetNull)
+  items     LabOrderItem[]
+
+  @@index([clinicId, status, orderedAt])
+  @@index([patientId, orderedAt])
+  @@index([doctorId, orderedAt])
+}
+
+/// One requested test inside an order, holding both the catalog snapshot and
+/// the reported result. Result values are PHI and never enter the audit trail.
+model LabOrderItem {
+  id             String         @id @default(cuid())
+  orderId        String
+  testId         String
+  testCode       String
+  testName       String
+  unit           String?
+  referenceRange String?
+  resultValue    String?
+  flag           LabResultFlag?
+  comment        String?
+  resultedAt     DateTime?
+  resultedByName String?
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+
+  order LabOrder @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  test  LabTest  @relation(fields: [testId], references: [id], onDelete: Restrict)
+
+  @@unique([orderId, testId])
+  @@index([orderId])
 }

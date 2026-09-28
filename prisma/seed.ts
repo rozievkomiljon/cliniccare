@@ -4,7 +4,7 @@
  * Passwords are argon2id-hashed via the app's password module.
  * Safe to re-run — upserts only (re-runs refresh password hashes).
  */
-import { BloodGroup, PrismaClient, Role, Sex } from "@prisma/client";
+import { BloodGroup, LabSpecimenType, PrismaClient, Role, Sex } from "@prisma/client";
 
 import { hashPassword } from "../src/lib/auth/password";
 
@@ -63,6 +63,26 @@ const DEMO_PATIENTS = [
     chronicConditions: null,
     portalLinked: false,
   },
+];
+
+/** Phase 5: the laboratory's orderable catalog. Code is unique per clinic. */
+const LAB_TESTS: Array<{
+  code: string;
+  name: string;
+  category: string;
+  specimen: LabSpecimenType;
+  unit: string | null;
+  referenceRange: string | null;
+  turnaroundHours: number;
+}> = [
+  { code: "CBC", name: "Complete blood count", category: "HAEMATOLOGY", specimen: LabSpecimenType.BLOOD, unit: null, referenceRange: null, turnaroundHours: 4 },
+  { code: "HGB", name: "Haemoglobin", category: "HAEMATOLOGY", specimen: LabSpecimenType.BLOOD, unit: "g/dL", referenceRange: "13.0-17.0", turnaroundHours: 4 },
+  { code: "GLU", name: "Fasting glucose", category: "BIOCHEMISTRY", specimen: LabSpecimenType.BLOOD, unit: "mmol/L", referenceRange: "3.9-5.5", turnaroundHours: 3 },
+  { code: "CHOL", name: "Total cholesterol", category: "BIOCHEMISTRY", specimen: LabSpecimenType.BLOOD, unit: "mmol/L", referenceRange: "< 5.2", turnaroundHours: 6 },
+  { code: "TSH", name: "Thyroid stimulating hormone", category: "BIOCHEMISTRY", specimen: LabSpecimenType.BLOOD, unit: "mIU/L", referenceRange: "0.4-4.0", turnaroundHours: 8 },
+  { code: "VITD", name: "Vitamin D (25-OH)", category: "BIOCHEMISTRY", specimen: LabSpecimenType.BLOOD, unit: "nmol/L", referenceRange: "50-125", turnaroundHours: 24 },
+  { code: "CRP", name: "C-reactive protein", category: "IMMUNOLOGY", specimen: LabSpecimenType.BLOOD, unit: "mg/L", referenceRange: "< 5", turnaroundHours: 6 },
+  { code: "UA", name: "Urinalysis", category: "URINALYSIS", specimen: LabSpecimenType.URINE, unit: null, referenceRange: "Negative", turnaroundHours: 2 },
 ];
 
 const SERVICES = [
@@ -285,8 +305,75 @@ async function main(): Promise<void> {
     }
   }
 
+  // Phase 5: laboratory catalog (idempotent by clinic + code).
+  for (const test of LAB_TESTS) {
+    await prisma.labTest.upsert({
+      where: { clinicId_code: { clinicId: clinic.id, code: test.code } },
+      update: { name: test.name, category: test.category, specimen: test.specimen, unit: test.unit, referenceRange: test.referenceRange, turnaroundHours: test.turnaroundHours, isActive: true, isDeleted: false },
+      create: { clinicId: clinic.id, ...test },
+    });
+  }
+
+  // One released result set, so the chart and the portal have something to show.
+  const hasLabOrder = await prisma.labOrder.findFirst({ where: { clinicId: clinic.id } });
+  if (!hasLabOrder) {
+    const paul = await prisma.patient.findFirst({ where: { clinicId: clinic.id, mrn: "P-2026-00001" } });
+    const labTech = users.get("lab@cliniccare.local");
+    const glucose = await prisma.labTest.findFirst({ where: { clinicId: clinic.id, code: "GLU" } });
+    const cholesterol = await prisma.labTest.findFirst({ where: { clinicId: clinic.id, code: "CHOL" } });
+    if (paul && glucose && cholesterol) {
+      const orderedAt = nextBusinessDayAt(1, 11);
+      const collectorName = labTech?.name ?? "Laboratory";
+      await prisma.labOrder.create({
+        data: {
+          clinicId: clinic.id,
+          patientId: paul.id,
+          doctorId: doctor.id,
+          status: "VERIFIED",
+          priority: "ROUTINE",
+          indication: "Annual check-up",
+          orderedById: doctorUser.id,
+          orderedByName: doctorUser.name,
+          orderedAt,
+          collectedAt: orderedAt,
+          collectedByName: collectorName,
+          completedAt: orderedAt,
+          verifiedAt: orderedAt,
+          verifiedByName: doctorUser.name,
+          items: {
+            create: [
+              {
+                testId: glucose.id,
+                testCode: glucose.code,
+                testName: glucose.name,
+                unit: glucose.unit,
+                referenceRange: glucose.referenceRange,
+                resultValue: "5.1",
+                flag: "NORMAL",
+                resultedAt: orderedAt,
+                resultedByName: collectorName,
+              },
+              {
+                testId: cholesterol.id,
+                testCode: cholesterol.code,
+                testName: cholesterol.name,
+                unit: cholesterol.unit,
+                referenceRange: cholesterol.referenceRange,
+                resultValue: "5.8",
+                flag: "HIGH",
+                comment: "Repeat fasting lipid panel in three months.",
+                resultedAt: orderedAt,
+                resultedByName: collectorName,
+              },
+            ],
+          },
+        },
+      });
+    }
+  }
+
   console.log(
-    `Seeded clinic "${clinic.name}", ${ROLE_SEEDS.length} role users, ${DEMO_PATIENTS.length} patients, ${SERVICES.length} services, 1 doctor schedule, demo appointments, 1 signed clinical record.`,
+    `Seeded clinic "${clinic.name}", ${ROLE_SEEDS.length} role users, ${DEMO_PATIENTS.length} patients, ${SERVICES.length} services, 1 doctor schedule, demo appointments, 1 signed clinical record, ${LAB_TESTS.length} lab tests, 1 released lab result.`,
   );
 }
 
