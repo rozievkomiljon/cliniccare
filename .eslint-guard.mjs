@@ -26,6 +26,7 @@ const ALLOWED_ENV_FILES = [
   "tests/patients.integration.test.ts", // CI env vars for DB-backed suites
   "tests/appointments.integration.test.ts", // CI env vars for DB-backed suites
   "tests/clinical.integration.test.ts", // CI env vars for DB-backed suites
+  "tests/lab.integration.test.ts", // CI env vars for DB-backed suites
 ];
 
 function toPosix(p) {

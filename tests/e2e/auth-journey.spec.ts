@@ -6,6 +6,12 @@ const DOCTOR = { email: "doctor@cliniccare.local", password: PASSWORD };
 const CLINIC_ADMIN = { email: "admin@cliniccare.local", password: PASSWORD };
 const PATIENT = { email: "patient@cliniccare.local", password: PASSWORD };
 
+/**
+ * The laboratory queue is one surface with three stages, so its page guard
+ * accepts any of these; the forbidden page names the whole requirement.
+ */
+const LAB_QUEUE_PERMISSIONS = "lab:catalog | lab:collect | lab:verify";
+
 async function login(
   page: Page,
   creds: { email: string; password: string },
@@ -22,7 +28,8 @@ async function login(
 
 async function expectForbidden(page: Page, path: string, permission: string): Promise<void> {
   await page.goto(path);
-  await expect(page).toHaveURL(new RegExp(`/forbidden\\?.*permission=${permission.replace(":", "%3A")}`));
+  const encoded = encodeURIComponent(permission).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  await expect(page).toHaveURL(new RegExp(`/forbidden\\?.*permission=${encoded}`));
   await expect(page.getByRole("heading", { name: "Access denied" })).toBeVisible();
   await expect(page.getByText(`missing permission: ${permission}`)).toBeVisible();
   await expect(page.getByRole("link", { name: "Go to dashboard" })).toBeVisible();
@@ -33,7 +40,7 @@ test.describe("login journey", () => {
     await login(page, RECEPTIONIST, /Front desk/);
     await expectForbidden(page, "/settings/staff", "staff:manage");
     await expectForbidden(page, "/settings/audit", "audit:view");
-    await expectForbidden(page, "/laboratory", "lab:collect");
+    await expectForbidden(page, "/laboratory", LAB_QUEUE_PERMISSIONS);
     await expectForbidden(page, "/pharmacy", "pharmacy:catalog");
     // Receptionists DO hold billing permissions (front-desk payments):
     await page.goto("/billing");
@@ -53,7 +60,7 @@ test.describe("login journey", () => {
     await page.goto("/settings/audit");
     await expect(page.getByRole("heading", { name: "Audit log" })).toBeVisible();
     // Clinic admins are still not clinical users:
-    await expectForbidden(page, "/laboratory", "lab:collect");
+    await expectForbidden(page, "/laboratory", LAB_QUEUE_PERMISSIONS);
   });
 
   test("patient reaches portal-scoped dashboard but not staff areas", async ({ page }) => {

@@ -2,6 +2,7 @@ import Link from "next/link";
 
 import { PortalAppointments } from "@/features/appointments/components/portal-appointments";
 import { PortalClinicalSummary } from "@/features/clinical/components/portal-clinical";
+import { PortalLabResults } from "@/features/lab/components/portal-lab";
 import { listAppointmentsForPatient } from "@/features/appointments/queries";
 import { getClinicTimeZone, listDoctors } from "@/features/doctors/queries";
 import { getPatientForPortalUser } from "@/features/patients/queries";
@@ -34,7 +35,6 @@ export default async function PortalPage() {
         <h1 className="text-2xl font-semibold tracking-tight">
           Welcome, {patient.firstName} {patient.lastName}
         </h1>
-        <p className="mt-1 text-sm text-muted-foreground">Lab results (Phase 5) will appear here.</p>
       </header>
 
       <PortalAppointments
@@ -44,6 +44,8 @@ export default async function PortalPage() {
       />
 
       <PortalClinicalSummary patientId={patient.id} clinicId={patient.clinicId} />
+
+      <PortalLabResults patientId={patient.id} clinicId={patient.clinicId} />
 
       <section className="grid gap-4 lg:grid-cols-2">
         <div className="rounded-lg border p-5 text-sm">

@@ -65,4 +65,13 @@ boundaries, roadmap).
   OPEN, signing locks the field set), clinical notes and vitals, gated by
   `clinical:view` / `clinical:author` / `vitals:record`; signed visits surface
   in the patient portal
-- [ ] Phase 5–9 — laboratory, pharmacy, billing, reports/AI, hardening
+- [x] Phase 5 (`v0.6.0`) — laboratory: clinic test catalog, requests moving
+  ORDERED → COLLECTED → COMPLETED → VERIFIED (cancelled from either of the first
+  two), a bench queue at `/laboratory` grouped by the step each request needs,
+  results on the patient chart and released results in the portal; gated by
+  `lab:catalog` / `lab:order` / `lab:collect` / `lab:verify`. Verification is the
+  lock (rule 7), so a recheck is a new request; audit rows carry metadata only —
+  values, comments, test names and the indication never enter the audit trail.
+  Ordered items snapshot the catalog, so editing a test cannot rewrite a result
+  that was already reported.
+- [ ] Phase 6–9 — pharmacy, billing, reports/AI, hardening

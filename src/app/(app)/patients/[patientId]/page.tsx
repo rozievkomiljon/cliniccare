@@ -5,6 +5,8 @@ import { PatientDocuments } from "@/features/patients/components/patient-documen
 import { StartEncounterForm, VitalsForm } from "@/features/clinical/components/clinical-record";
 import { fmtStamp, kindLabel, vitalsSummary } from "@/features/clinical/format";
 import { listEncountersForPatient, listVitalsForPatient } from "@/features/clinical/queries";
+import { LabOrderCard, OrderLabTestForm } from "@/features/lab/components/lab-record";
+import { listLabOrdersForPatient, listLabTests } from "@/features/lab/queries";
 import { getClinicTimeZone, listDoctors } from "@/features/doctors/queries";
 import { getDoctorProfileForUser } from "@/features/doctors/service";
 import { getPatientForClinic } from "@/features/patients/queries";
@@ -52,6 +54,8 @@ export default async function PatientProfilePage({
   const canViewClinical = hasPermission(session.activeRole, "clinical:view");
   const canAuthor = hasPermission(session.activeRole, "clinical:author");
   const canRecordVitals = hasPermission(session.activeRole, "vitals:record");
+  const canOrderLabs = hasPermission(session.activeRole, "lab:order");
+  const canVerifyLabs = hasPermission(session.activeRole, "lab:verify");
 
   // Clinical rows load only for roles that may read them. Hiding the section is
   // cosmetic; the permission check above is the boundary.
@@ -66,6 +70,22 @@ export default async function PatientProfilePage({
           session.activeRole === "DOCTOR" ? getDoctorProfileForUser(session.user.id) : Promise.resolve(null),
         ]);
         return { encounters, vitals, timeZone, doctors, ownProfileId: own?.id };
+      })()
+    : null;
+
+  // Laboratory requests are clinical data too, so they load only for roles that
+  // may order or release them. The bench works from its own queue, not the chart.
+  const labs = canOrderLabs || canVerifyLabs
+    ? await (async () => {
+        const clinicId = session.activeClinicId ?? "";
+        const [orders, tests, doctors, timeZone, own] = await Promise.all([
+          listLabOrdersForPatient(clinicId, patientId),
+          canOrderLabs ? listLabTests(clinicId) : Promise.resolve([]),
+          canOrderLabs ? listDoctors(clinicId) : Promise.resolve([]),
+          getClinicTimeZone(clinicId),
+          session.activeRole === "DOCTOR" ? getDoctorProfileForUser(session.user.id) : Promise.resolve(null),
+        ]);
+        return { orders, tests, doctors, timeZone, ownProfileId: own?.id };
       })()
     : null;
 
@@ -217,6 +237,46 @@ export default async function PatientProfilePage({
               </div>
             ) : null}
           </div>
+        </section>
+      ) : null}
+
+      {labs ? (
+        <section className="space-y-3">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+              Laboratory
+            </h2>
+            {canOrderLabs ? (
+              <OrderLabTestForm
+                patientId={patient.id}
+                tests={labs.tests}
+                defaultDoctorId={labs.ownProfileId ?? undefined}
+                doctors={labs.doctors.map((d) => ({
+                  id: d.id,
+                  name: d.name,
+                  specialization: d.specialization,
+                }))}
+              />
+            ) : null}
+          </div>
+
+          {labs.orders.length === 0 ? (
+            <p className="rounded-lg border bg-white p-5 text-sm text-muted-foreground dark:bg-zinc-900">
+              No laboratory requests for this patient.
+            </p>
+          ) : (
+            <ul className="space-y-2">
+              {labs.orders.map((order) => (
+                <LabOrderCard
+                  key={order.id}
+                  order={order}
+                  timeZone={labs.timeZone}
+                  canVerify={canVerifyLabs}
+                  canCancel={canOrderLabs}
+                />
+              ))}
+            </ul>
+          )}
         </section>
       ) : null}
 

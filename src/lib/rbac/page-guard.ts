@@ -10,7 +10,7 @@ import "server-only";
 import { redirect } from "next/navigation";
 
 import { ForbiddenError } from "@/lib/errors";
-import { requirePermission, type AppSession } from "@/lib/rbac/guard";
+import { requireAnyPermission, requirePermission, type AppSession } from "@/lib/rbac/guard";
 import type { Permission } from "@/lib/rbac/permissions";
 
 export async function requirePagePermission(
@@ -22,6 +22,23 @@ export async function requirePagePermission(
   } catch (err) {
     if (err instanceof ForbiddenError) {
       redirect(`/forbidden?code=${encodeURIComponent(err.code)}&permission=${encodeURIComponent(permission)}`);
+    }
+    throw err;
+  }
+}
+
+/** Page guard for a surface any one of several permissions may open. */
+export async function requirePageAnyPermission(
+  permissions: readonly Permission[],
+  options: { clinicId?: string } = {},
+): Promise<AppSession> {
+  try {
+    return await requireAnyPermission(permissions, options);
+  } catch (err) {
+    if (err instanceof ForbiddenError) {
+      redirect(
+        `/forbidden?code=${encodeURIComponent(err.code)}&permission=${encodeURIComponent(permissions.join(" | "))}`,
+      );
     }
     throw err;
   }
